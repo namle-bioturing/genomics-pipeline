@@ -68,7 +68,7 @@ nextflow run epi2me-labs/wf-human-variation -r master \
 #### Base calling
 ```bash
 nextflow run epi2me-labs/wf-basecalling \
-    -bg \
+    -resume \
     --basecaller_cfg 'dna_r10.4.1_e8.2_400bps_hac@v5.0.0' \
     --dorado_ext 'pod5' \
     --input '/mnt/disk1/namle/data/PAW79146/pod5' \
@@ -76,6 +76,9 @@ nextflow run epi2me-labs/wf-basecalling \
     --remora_cfg 'dna_r10.4.1_e8.2_400bps_hac@v5.0.0_5mCG_5hmCG@v2' \
     --cuda_device 'cuda:0,4' \
     --output_fmt 'bam' \
+    --ubam_map_threads 25 \
+    --ubam_sort_threads 10 \
+    --ubam_bam2fq_threads 10 \
     -profile standard
 
 nextflow pull namle-bioturing/wf-basecalling && \
@@ -85,10 +88,11 @@ nextflow run namle-bioturing/wf-basecalling \
     --input '/mnt/disk1/namle/data/PAW79146/pod5' \
     --ref '/mnt/disk1/namle/data/references/GCA_000001405.15_GRCh38_no_alt_analysis_set.fasta' \
     --remora_cfg 'dna_r10.4.1_e8.2_400bps_hac@v5.0.0_5mCG_5hmCG@v2' \
-    --cuda_device 'cuda:0,4' \
+    --cuda_device 'cuda:0' \
     --output_fmt 'bam' \
     --use_parabricks \
-    -profile custom
+    -profile standard \
+    -resume
 ```
 
 
