@@ -2,8 +2,11 @@
 """
 High-performance parallel VEP-annotated VCF processor using cyvcf2, polars, and multiprocessing.
 
-This script processes VEP-annotated VCF files in parallel by chromosome, extracting variant-gene
-pairs with intelligent gene prioritization (HGNC_ID > SYMBOL) and outputs to Parquet format.
+This script processes VEP-annotated VCF files in parallel by chromosome. For each variant, it:
+- Selects the canonical transcript (PICK=1) for detailed annotations
+- Collects all genes from all CSQ entries and stores them in a 'genes' field
+- Annotates with OMIM inheritance patterns and phenotype information
+Output is in Parquet format.
 """
 
 import argparse
@@ -78,6 +81,9 @@ CSQ_FIELD_MAPPING = {
     # Maximum frequencies
     'MAX_AF': 'max_af',
     'MAX_AF_POPS': 'max_af_pops',
+
+    # Transcript selection
+    'PICK': 'pick',
 }
 
 
@@ -128,6 +134,65 @@ def load_hgnc_mapping(hgnc_file: Path) -> Dict[str, str]:
         return mapping
     except Exception as e:
         print(f"[ERROR] Error loading HGNC mapping: {e}")
+        sys.exit(1)
+
+
+def load_inheritance_mapping(inheritance_file: Path) -> Dict[str, str]:
+    """
+    Load gene to inheritance mode mapping from TSV file.
+
+    Args:
+        inheritance_file: Path to TSV file with columns [gene, inheritance_mode]
+
+    Returns:
+        Dictionary mapping gene symbols to inheritance modes
+    """
+    try:
+        df = pl.read_csv(
+            inheritance_file,
+            separator="\t",
+            has_header=False,
+            new_columns=["gene", "inheritance"],
+            schema_overrides={"gene": pl.Utf8, "inheritance": pl.Utf8}
+        )
+        mapping = {row[0]: row[1] for row in df.iter_rows()}
+        print(f"[INFO] Loading inheritance mapping: {len(mapping):,} entries")
+        return mapping
+    except Exception as e:
+        print(f"[ERROR] Error loading inheritance mapping: {e}")
+        sys.exit(1)
+
+
+def load_omim_phenotype_mapping(omim_file: Path) -> Dict[str, str]:
+    """
+    Load gene to OMIM phenotype mapping from TSV file.
+    Handles multiple phenotypes per gene by concatenating unique values with ' | '.
+
+    Args:
+        omim_file: Path to TSV file where column 1 is gene, column 4 is phenotype
+
+    Returns:
+        Dictionary mapping gene symbols to concatenated unique phenotypes
+    """
+    try:
+        df = pl.read_csv(
+            omim_file,
+            separator="\t",
+            has_header=False,
+            schema_overrides={f"column_{i}": pl.Utf8 for i in range(1, 15)}
+        )
+
+        # Group by gene (column_1) and aggregate unique phenotypes (column_4)
+        grouped = (
+            df.group_by("column_1")
+            .agg(pl.col("column_4").unique().str.concat(delimiter=" | "))
+        )
+
+        mapping = {row[0]: row[1] for row in grouped.iter_rows()}
+        print(f"[INFO] Loading OMIM phenotype mapping: {len(mapping):,} genes")
+        return mapping
+    except Exception as e:
+        print(f"[ERROR] Error loading OMIM phenotype mapping: {e}")
         sys.exit(1)
 
 
@@ -248,6 +313,8 @@ def process_chromosome(
     chromosome: str,
     vcf_path: str,
     hgnc_mapping: Dict[str, str],
+    inheritance_mapping: Dict[str, str],
+    omim_phenotype_mapping: Dict[str, str],
     csq_field_names: List[str]
 ) -> List[Dict]:
     """
@@ -257,10 +324,12 @@ def process_chromosome(
         chromosome: Chromosome name to process
         vcf_path: Path to VCF file
         hgnc_mapping: HGNC ID to symbol mapping
+        inheritance_mapping: Gene to inheritance mode mapping
+        omim_phenotype_mapping: Gene to OMIM phenotypes mapping
         csq_field_names: List of CSQ field names
 
     Returns:
-        List of record dictionaries (one per variant-gene pair)
+        List of record dictionaries (one per variant with PICK=1 transcript)
     """
     # Pre-compute CSQ field indices for O(1) lookup
     csq_field_indices = {name: idx for idx, name in enumerate(csq_field_names)}
@@ -316,9 +385,6 @@ def process_chromosome(
             variant_key = f"{chrom}_{pos}_{ref}_{alt}"
             variant_id = compute_hash(variant_key)
 
-            # Track genes seen for this variant (use set for O(1) membership test)
-            seen_genes: Set[str] = set()
-
             # Parse CSQ field
             csq_string = variant.INFO.get('CSQ', '')
             if not csq_string:
@@ -326,6 +392,10 @@ def process_chromosome(
 
             # Split CSQ by comma (multiple consequences)
             csq_entries = csq_string.split(',')
+
+            # First pass: collect all genes from all CSQ entries
+            all_genes: Set[str] = set()
+            picked_csq_values = None
 
             for csq_entry in csq_entries:
                 try:
@@ -340,52 +410,60 @@ def process_chromosome(
 
                     # Extract gene using priority logic with pre-computed indices
                     gene = extract_gene_from_csq(csq_values, csq_field_indices, hgnc_mapping)
+                    if gene:
+                        all_genes.add(gene)
 
-                    # Skip if no gene or already seen
-                    if not gene or gene in seen_genes:
-                        continue
-
-                    seen_genes.add(gene)
-
-                    # Create pair ID
-                    pair_key = f"{chrom}_{pos}_{ref}_{alt}_{gene}"
-                    pair_id = compute_hash(pair_key)
-
-                    # Build record
-                    record = {
-                        'chrom': chrom,
-                        'pos': pos,
-                        'ref': ref,
-                        'alt': alt,
-                        'qual': qual,
-                        'gene': gene,
-                        'variant_id': variant_id,
-                        'pair_id': pair_id
-                    }
-
-                    # Add FORMAT fields
-                    record.update(format_fields)
-
-                    # Add CSQ fields (only mapped fields from CSQ_FIELD_MAPPING)
-                    for idx, field_name in enumerate(csq_field_names):
-                        if field_name in CSQ_FIELD_MAPPING:
-                            output_name = CSQ_FIELD_MAPPING[field_name]
-                            if idx < len(csq_values):
-                                record[output_name] = csq_values[idx] if csq_values[idx] else None
-                            else:
-                                record[output_name] = None
-
-                    records.append(record)
+                    # Check if this is the picked transcript
+                    pick_idx = csq_field_indices.get('PICK')
+                    if pick_idx is not None and pick_idx < len(csq_values):
+                        if csq_values[pick_idx] == '1':
+                            picked_csq_values = csq_values
 
                 except Exception as e:
                     print(f"[WARNING] [{chromosome}] Error parsing CSQ entry at {chrom}:{pos}: {e}")
                     continue
 
+            # Skip if no picked transcript found or no genes collected
+            if not picked_csq_values or not all_genes:
+                continue
+
+            # Build record from the picked transcript
+            record = {
+                'chrom': chrom,
+                'pos': pos,
+                'ref': ref,
+                'alt': alt,
+                'qual': qual,
+                'genes': list(all_genes),  # Store all genes as a list
+                'variant_id': variant_id
+            }
+
+            # Add FORMAT fields
+            record.update(format_fields)
+
+            # Add CSQ fields from picked transcript (only mapped fields from CSQ_FIELD_MAPPING)
+            for idx, field_name in enumerate(csq_field_names):
+                if field_name in CSQ_FIELD_MAPPING:
+                    output_name = CSQ_FIELD_MAPPING[field_name]
+                    if idx < len(picked_csq_values):
+                        record[output_name] = picked_csq_values[idx] if picked_csq_values[idx] else None
+                    else:
+                        record[output_name] = None
+
+            # Add OMIM annotations for all genes (concatenated with ' | ')
+            inheritance_list = [inheritance_mapping.get(g) for g in all_genes if inheritance_mapping.get(g)]
+            phenotype_list = [omim_phenotype_mapping.get(g) for g in all_genes if omim_phenotype_mapping.get(g)]
+
+            record['omim_inheritance'] = ' | '.join(inheritance_list) if inheritance_list else None
+            record['omim_phenotype'] = ' | '.join(phenotype_list) if phenotype_list else None
+
+            records.append(record)
+
     finally:
         vcf.close()
 
-    pairs_count = len(records)
-    print(f"[INFO] [{chromosome}] Completed: {variant_count:,} variants → {pairs_count:,} pairs extracted")
+    variants_extracted = len(records)
+    print(f"[INFO] [{chromosome}] Completed: {variant_count:,} variants → {variants_extracted:,} variants with PICK=1 extracted")
 
     return records
 
@@ -393,15 +471,22 @@ def process_chromosome(
 def process_vcf_parallel(
     vcf_file: Path,
     hgnc_mapping: Dict[str, str],
+    inheritance_mapping: Dict[str, str],
+    omim_phenotype_mapping: Dict[str, str],
     output_file: Path,
     num_processes: int
 ) -> None:
     """
     Process VEP-annotated VCF file in parallel by chromosome.
 
+    Creates one record per variant using the PICK=1 transcript for annotations,
+    while collecting all genes from all CSQ entries into the 'genes' field.
+
     Args:
         vcf_file: Path to VEP-annotated VCF file
         hgnc_mapping: HGNC ID to symbol mapping
+        inheritance_mapping: Gene to inheritance mode mapping
+        omim_phenotype_mapping: Gene to OMIM phenotypes mapping
         output_file: Path for output Parquet file
         num_processes: Number of parallel processes
     """
@@ -436,7 +521,7 @@ def process_vcf_parallel(
 
     # Create worker arguments (distribute chromosomes across workers)
     worker_args = [
-        (chrom, str(vcf_file), hgnc_mapping, csq_field_names)
+        (chrom, str(vcf_file), hgnc_mapping, inheritance_mapping, omim_phenotype_mapping, csq_field_names)
         for chrom in chromosomes
     ]
 
@@ -455,8 +540,8 @@ def process_vcf_parallel(
     # Flatten results from all workers into single list
     all_records = [record for chrom_results in results for record in chrom_results]
 
-    total_pairs = len(all_records)
-    print(f"[INFO] Total variant-gene pairs: {total_pairs:,}")
+    total_variants = len(all_records)
+    print(f"[INFO] Total variants with PICK=1: {total_variants:,}")
 
     if not all_records:
         print("[WARNING] No records extracted. Output file will not be created.")
@@ -483,9 +568,9 @@ def process_vcf_parallel(
     print(f"[INFO] Total time: {elapsed_time:.1f} seconds")
 
     if elapsed_time > 0:
-        # Calculate processing rate (pairs/second)
-        rate = total_pairs / elapsed_time
-        print(f"[INFO] Processing rate: {rate:,.0f} pairs/second")
+        # Calculate processing rate (variants/second)
+        rate = total_variants / elapsed_time
+        print(f"[INFO] Processing rate: {rate:,.0f} variants/second")
 
 
 def main():
@@ -507,6 +592,20 @@ def main():
         type=Path,
         required=True,
         help="Path to TSV file with columns [hgnc_id, hgnc_symbol]"
+    )
+
+    parser.add_argument(
+        "--inheritance-genes",
+        type=Path,
+        required=True,
+        help="Path to TSV file with columns [gene, inheritance_mode]"
+    )
+
+    parser.add_argument(
+        "--omim-info",
+        type=Path,
+        required=True,
+        help="Path to TSV file with gene and phenotype information"
     )
 
     parser.add_argument(
@@ -534,14 +633,31 @@ def main():
         print(f"[ERROR] HGNC mapping file not found: {args.hgnc_mapping}")
         sys.exit(1)
 
+    if not args.inheritance_genes.exists():
+        print(f"[ERROR] Inheritance genes file not found: {args.inheritance_genes}")
+        sys.exit(1)
+
+    if not args.omim_info.exists():
+        print(f"[ERROR] OMIM info file not found: {args.omim_info}")
+        sys.exit(1)
+
     # Create output directory if needed
     args.output.parent.mkdir(parents=True, exist_ok=True)
 
-    # Load HGNC mapping (shared across workers)
+    # Load mappings (shared across workers for O(1) lookups)
     hgnc_mapping = load_hgnc_mapping(args.hgnc_mapping)
+    inheritance_mapping = load_inheritance_mapping(args.inheritance_genes)
+    omim_phenotype_mapping = load_omim_phenotype_mapping(args.omim_info)
 
     # Process VCF in parallel
-    process_vcf_parallel(args.vcf, hgnc_mapping, args.output, args.processes)
+    process_vcf_parallel(
+        args.vcf,
+        hgnc_mapping,
+        inheritance_mapping,
+        omim_phenotype_mapping,
+        args.output,
+        args.processes
+    )
 
     print("\n[INFO] ✓ Processing complete!")
 

@@ -128,10 +128,11 @@ def example_4_rare_variants(parquet_file: Path, max_af: float = 0.01) -> None:
         return (
             pl.scan_parquet(parquet_file)
             .filter(
-                (pl.col("gnomadg_af").cast(pl.Float64) < max_af) |
-                pl.col("gnomadg_af").is_null()
+                # (pl.col("gnomadg_af").cast(pl.Float64) < max_af) |
+                # pl.col("gnomadg_af").is_null()
+                pl.col("am_class").is_not_null()
             )
-            .select(["chrom", "pos", "ref", "alt", "gene", "gnomadg_af"])  # Column pruning
+            .select(["chrom", "pos", "ref", "alt", "gene", "gnomadg_af", "revel", "am_class"])  # Column pruning
             .sort(["chrom", "pos"])
             .head(30)
             .collect()
