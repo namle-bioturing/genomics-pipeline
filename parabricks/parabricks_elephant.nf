@@ -62,7 +62,7 @@ process deepvariant {
     pbrun deepvariant \\
         --ref ${reference} \\
         --in-bam ${bam} \\
-        --num-streams-per-gpu 2 \\
+        --num-streams-per-gpu 1 \\
         --out-variants ${sample_id}.deepvariant.vcf \\
         ${wes_flag}
     """
