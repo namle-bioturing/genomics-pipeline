@@ -1,0 +1,21 @@
+#!/bin/bash
+# Usage: ./run_samples.sh <samples.tsv> <sample_type> <output_dir>
+
+SAMPLES_TSV=$1
+SAMPLE_TYPE=$2
+OUTPUT_DIR=$3
+
+while IFS=$'\t' read -r sample_id fq1 fq2 bench_vcf bench_bed; do
+    [[ "$sample_id" == "sample_id" ]] && continue  # skip header
+    [[ "$sample_id" =~ ^#.* ]] && continue  # skip comments
+    nextflow run parabricks.nf \
+        --sample_id "$sample_id" \
+        --fastq1 "$fq1" \
+        --fastq2 "$fq2" \
+        --benchmark_vcf "$bench_vcf" \
+        --benchmark_bed "$bench_bed" \
+        --sample_type "$SAMPLE_TYPE" \
+        --output_dir "$OUTPUT_DIR" \
+        -resume \
+        --profile standard
+done < "$SAMPLES_TSV"

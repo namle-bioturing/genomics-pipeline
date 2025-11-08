@@ -161,14 +161,17 @@ nextflow run namle-bioturing/wf-basecalling \
 
 ```bash
 nextflow run epi2me-labs/wf-human-variation \
+    -bg \
     --bam 'basecalling-output/SAMPLE.pass.bam' \
     --ref '/mnt/disk3/namle/data/references/GCA_000001405.15_GRCh38_no_alt_analysis_set.fasta' \
     --sample_name 'SAMPLE' \
     --snp \
+    --annotation false \
     -profile standard
 
 nextflow run epi2me-labs/wf-human-variation \
-    --bam 'basecalling-output/SAMPLE.pass.bam' \
+    -bg \
+    --bam 'wf-basecalling/SAMPLE.pass.bam' \
     --ref '/mnt/disk3/namle/data/references/GCA_000001405.15_GRCh38_no_alt_analysis_set.fasta' \
     --sample_name 'SAMPLE' \
     --snp \
@@ -179,6 +182,7 @@ nextflow run epi2me-labs/wf-human-variation \
 
 ### Benchmarking
 
+#### 1st FlowCell
 ```bash
 docker run -itv .:/workspace -v /mnt/disk1/namle:/mnt/disk1/namle hap.py:latest bash
 
@@ -188,5 +192,37 @@ cd /workspace && /opt/hap.py/bin/hap.py \
     /mnt/disk1/namle/run/PAW79146/epi2me/wf-human-variation/PAW79146.wf_snp.vcf.gz \
     -f /mnt/disk1/namle/data/benchmarks/HG001_GRCh38_1_22_v4.2.1_benchmark.bed \
     --threads 80 \
-    -o test
+    --engine vcfeval \
+    -o PAW79146-epi2me-hac-filtered-vcfeval
+
+export HGREF=/mnt/disk1/namle/data/references/GCA_000001405.15_GRCh38_no_alt_analysis_set.fasta
+cd /workspace && /opt/hap.py/bin/hap.py \
+    /mnt/disk1/namle/data/benchmarks/HG001_GRCh38_1_22_v4.2.1_benchmark.vcf.gz \
+    /mnt/disk1/namle/run/PAW79146/epi2me/wf-human-variation/PAW79146.wf_snp.vcf.gz \
+    -f /mnt/disk1/namle/data/benchmarks/HG001_GRCh38_1_22_v4.2.1_benchmark.bed \
+    --threads 80 \
+    -o PAW79146-epi2me-hac-filtered-normal
+```
+
+
+#### 2nd FlowCell
+```bash
+docker run -itv .:/workspace -v /mnt/disk3/namle:/mnt/disk3/namle hap.py:latest bash
+
+export HGREF=/mnt/disk3/namle/data/references/GCA_000001405.15_GRCh38_no_alt_analysis_set.fasta
+cd /workspace && /opt/hap.py/bin/hap.py \
+    /mnt/disk3/namle/data/benchmarks/HG001_GRCh38_1_22_v4.2.1_benchmark.vcf.gz \
+    /mnt/disk3/namle/run/PAW81754/epi2me/wf-human-variation/PAW81754.wf_snp.vcf.gz \
+    -f /mnt/disk3/namle/data/benchmarks/HG001_GRCh38_1_22_v4.2.1_benchmark.bed \
+    --threads 50 \
+    --engine vcfeval \
+    -o PAW81754-epi2me-hac-filtered-vcfeval
+
+export HGREF=/mnt/disk3/namle/data/references/GCA_000001405.15_GRCh38_no_alt_analysis_set.fasta
+cd /workspace && /opt/hap.py/bin/hap.py \
+    /mnt/disk3/namle/data/benchmarks/HG001_GRCh38_1_22_v4.2.1_benchmark.vcf.gz \
+    /mnt/disk3/namle/run/PAW81754/epi2me/wf-human-variation/PAW81754.wf_snp.vcf.gz \
+    -f /mnt/disk3/namle/data/benchmarks/HG001_GRCh38_1_22_v4.2.1_benchmark.bed \
+    --threads 80 \
+    -o PAW81754-epi2me-hac-filtered-normal
 ```

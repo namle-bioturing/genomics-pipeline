@@ -1,5 +1,5 @@
 ```bash
-python3 process_vep_parallel.py \
+python3 /mnt/nasdev2/namle/run/process_vep_parallel.py \
     --vcf PAW81754.out.vep.vcf.gz \
     --hgnc-mapping /mnt/nasdev2/namle/references/hgnc.txt \
     --inheritance-genes /mnt/nasdev2/namle/references/inheritance_genes.tsv \

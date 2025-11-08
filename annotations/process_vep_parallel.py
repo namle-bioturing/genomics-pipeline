@@ -6,7 +6,7 @@ This script processes VEP-annotated VCF files in parallel by chromosome. For eac
 - Selects the canonical transcript (PICK=1) for detailed annotations
 - Collects all genes from all CSQ entries and stores them in a 'genes' field
 - Annotates with OMIM inheritance patterns and phenotype information
-Output is in Parquet format.
+Output is in Parquet format with one row per variant.
 """
 
 import argparse
@@ -44,6 +44,18 @@ CSQ_FIELD_MAPPING = {
     'CLIN_SIG': 'clinsig',
     'am_class': 'am_class',
     'am_pathogenicity': 'am_pathogenicity',
+    'CADD_PHRED': 'cadd_phred',
+    'CADD_RAW': 'cadd_raw',
+    'SpliceAI_pred_DP_AG': 'spliceai_pred_dp_ag',
+    'SpliceAI_pred_DP_AL': 'spliceai_pred_dp_al',
+    'SpliceAI_pred_DP_DG': 'spliceai_pred_dp_dg',
+    'SpliceAI_pred_DP_DL': 'spliceai_pred_dp_dl',
+    'SpliceAI_pred_DS_AG': 'spliceai_pred_ds_ag',
+    'SpliceAI_pred_DS_AL': 'spliceai_pred_ds_al',
+    'SpliceAI_pred_DS_DG': 'spliceai_pred_ds_dg',
+    'SpliceAI_pred_DS_DL': 'spliceai_pred_ds_dl',
+    'SpliceAI_pred_SYMBOL': 'spliceai_pred_symbol',
+
 
     # Population frequencies - 1000 Genomes
     'AF': 'af',
@@ -83,7 +95,7 @@ CSQ_FIELD_MAPPING = {
     'MAX_AF_POPS': 'max_af_pops',
 
     # Transcript selection
-    'PICK': 'pick',
+    # 'PICK': 'pick',
 }
 
 
@@ -423,8 +435,8 @@ def process_chromosome(
                     print(f"[WARNING] [{chromosome}] Error parsing CSQ entry at {chrom}:{pos}: {e}")
                     continue
 
-            # Skip if no picked transcript found or no genes collected
-            if not picked_csq_values or not all_genes:
+            # Skip if no picked transcript found
+            if not picked_csq_values:
                 continue
 
             # Build record from the picked transcript
