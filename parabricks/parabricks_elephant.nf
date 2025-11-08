@@ -5,7 +5,7 @@ params.fastq1 = null
 params.fastq2 = null
 params.benchmark_vcf = null
 params.benchmark_bed = null
-params.threads = 20
+params.threads = 10
 params.sample_type = "wgs" // wgs or wes
 params.output_dir = null
 
@@ -34,6 +34,8 @@ process germline {
         --ref ${reference} \\
         --x3 \\
         --low-memory \\
+        --memory-limit 62 \\
+        --htvc-low-memory \\
         --in-fq ${fq1} ${fq2} \\
         --knownSites ${known_sites} \\
         --out-bam ${sample_id}.bam \\
@@ -97,12 +99,12 @@ process benchmark {
 
 workflow {
     samples_ch = Channel.of([params.sample_id, file(params.fastq1), file(params.fastq2)])
-    reference_ch = Channel.fromPath(params.reference)
-    reference_fai_ch = Channel.fromPath("${params.reference}.fai")
-    known_sites_ch = Channel.fromPath(params.known_sites)
-    benchmark_vcf_ch = Channel.fromPath(params.benchmark_vcf)
-    benchmark_vcf_tbi_ch = Channel.fromPath("${params.benchmark_vcf}.tbi")
-    benchmark_bed_ch = Channel.fromPath(params.benchmark_bed)
+    reference_ch = Channel.fromPath(params.reference).collect()
+    reference_fai_ch = Channel.fromPath("${params.reference}.fai").collect()
+    known_sites_ch = Channel.fromPath(params.known_sites).collect()
+    benchmark_vcf_ch = Channel.fromPath(params.benchmark_vcf).collect()
+    benchmark_vcf_tbi_ch = Channel.fromPath("${params.benchmark_vcf}.tbi").collect()
+    benchmark_bed_ch = Channel.fromPath(params.benchmark_bed).collect()
 
     germline(samples_ch, reference_ch, known_sites_ch)
     deepvariant(germline.out.bam, reference_ch)
