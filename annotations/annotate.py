@@ -17,10 +17,15 @@ import signal
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 
 import polars as pl
 from cyvcf2 import VCF
+
+# Compiled regex patterns for performance
+INTERVAR_CLASS_PATTERN = re.compile(r'^(Likely pathogenic|Likely benign|Uncertain significance|Pathogenic|Benign)\s+')
+INTERVAR_EVIDENCE_PATTERN = re.compile(r'(\w+)=(\[[\d,\s]+\]|\d+)')
+INTERVAR_ARRAY_PATTERN = re.compile(r'\d+')
 
 
 # CSQ field mapping: {original_field_name: output_column_name}
@@ -110,6 +115,170 @@ def compute_hash(value: str) -> str:
         Hexadecimal hash string (32 characters)
     """
     return hashlib.md5(value.encode()).hexdigest()
+
+
+def parse_intervar_evidence(evidence_string: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Parse InterVar evidence string to extract ACMG classification and evidences (optimized).
+
+    Example input:
+    "InterVar: Benign PVS1=0 PS=[0, 0, 0, 0, 0] PM=[0, 0, 0, 0, 0, 0, 0] PP=[0, 0, 0, 0, 0, 0] BA1=1 BS=[1, 0, 0, 0, 0] BP=[0, 0, 0, 0, 0, 0, 0, 0]"
+
+    Returns:
+        (classification, evidences) tuple, e.g., ("Benign", "BA1, BS1")
+    """
+    if not evidence_string or "InterVar:" not in evidence_string:
+        return None, None
+
+    # Remove "InterVar: " prefix - handle potential leading whitespace
+    idx = evidence_string.find("InterVar:")
+    content = evidence_string[idx + 9:].strip()  # Skip "InterVar:" (9 chars)
+
+    # Extract classification using compiled regex
+    match = INTERVAR_CLASS_PATTERN.match(content)
+    if not match:
+        return None, None
+
+    classification = match.group(1)
+    content = content[match.end():]
+
+    # Parse evidence codes using compiled regex
+    evidences = []
+
+    for match in INTERVAR_EVIDENCE_PATTERN.finditer(content):
+        code = match.group(1)
+        value = match.group(2)
+
+        if value.startswith('['):
+            # Array format - extract numbers efficiently
+            nums = INTERVAR_ARRAY_PATTERN.findall(value)
+            for idx, val in enumerate(nums):
+                if val != '0':
+                    evidences.append(f"{code}{idx+1}")
+        elif value != '0':
+            # Single non-zero value
+            evidences.append(code)
+
+    return classification, ", ".join(evidences) if evidences else None
+
+
+def load_intervar_data(intervar_file: Path) -> Dict[str, Tuple[str, Optional[str]]]:
+    """
+    Load InterVar annotation data from TSV file (optimized for large files).
+
+    Args:
+        intervar_file: Path to InterVar TSV file
+
+    Returns:
+        Dictionary mapping "chrom_pos_ref_alt_gene" to (classification, evidences)
+    """
+    try:
+        print(f"[INFO] Loading InterVar data from {intervar_file}...")
+
+        # Read only required columns by name for efficiency
+        # Column names from InterVar: #Chr, Start, Ref, Alt, Ref.Gene, InterVar: InterVar and Evidence
+        df = pl.read_csv(
+            intervar_file,
+            separator="\t",
+            has_header=True,
+            columns=["#Chr", "Start", "Ref", "Alt", "Ref.Gene", "InterVar: InterVar and Evidence"],
+            schema_overrides={
+                "#Chr": pl.Utf8,
+                "Start": pl.Utf8,
+                "Ref": pl.Utf8,
+                "Alt": pl.Utf8,
+                "Ref.Gene": pl.Utf8,
+                "InterVar: InterVar and Evidence": pl.Utf8
+            },
+            ignore_errors=True
+        )
+
+        # Rename columns for easier access
+        df = df.rename({
+            "#Chr": "Chr",
+            "Ref.Gene": "Gene",
+            "InterVar: InterVar and Evidence": "InterVar"
+        })
+
+        # Filter out rows with missing/invalid genes
+        df = df.filter(
+            (pl.col("Gene").is_not_null()) &
+            (pl.col("Gene") != "NONE") &
+            (pl.col("Gene") != ".") &
+            (pl.col("Gene") != "")
+        )
+
+        # Build mapping dictionary
+        mapping = {}
+
+        for row in df.iter_rows(named=False):
+            chrom, start, ref, alt, gene, intervar = row
+
+            if not all([chrom, start, ref, alt, gene, intervar]):
+                continue
+
+            # Create key
+            key = f"{chrom}_{start}_{ref}_{alt}_{gene}"
+
+            # Parse InterVar evidence
+            classification, evidences = parse_intervar_evidence(intervar)
+
+            if classification:
+                mapping[key] = (classification, evidences)
+
+        print(f"[INFO] Loaded InterVar mapping: {len(mapping):,} entries")
+        return mapping
+
+    except Exception as e:
+        print(f"[ERROR] Error loading InterVar data: {e}")
+        sys.exit(1)
+
+
+def get_most_significant_acmg(acmg_data: List[Dict]) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Get the most significant ACMG classification and evidences (optimized).
+
+    Significance order:
+    1. Pathogenic
+    2. Likely pathogenic
+    3. Uncertain significance
+    4. Likely benign
+    5. Benign
+
+    Args:
+        acmg_data: List of dicts with "ACMG_classification" and "ACMG_evidences" keys
+
+    Returns:
+        (most_significant_classification, most_significant_evidences)
+    """
+    if not acmg_data:
+        return None, None
+
+    # Rank mapping for quick lookup
+    rank_map = {
+        "Pathogenic": 0,
+        "Likely pathogenic": 1,
+        "Uncertain significance": 2,
+        "Likely benign": 3,
+        "Benign": 4
+    }
+
+    best_classification = None
+    best_evidences = None
+    best_rank = 999
+
+    for entry in acmg_data:
+        classification = entry.get("ACMG_classification")
+        if not classification:
+            continue
+
+        rank = rank_map.get(classification, 999)
+        if rank < best_rank:
+            best_rank = rank
+            best_classification = classification
+            best_evidences = entry.get("ACMG_evidences")
+
+    return best_classification, best_evidences
 
 
 def load_hgnc_mapping(hgnc_file: Path) -> Dict[str, str]:
@@ -327,6 +496,7 @@ def process_chromosome(
     hgnc_mapping: Dict[str, str],
     inheritance_mapping: Dict[str, str],
     omim_phenotype_mapping: Dict[str, str],
+    intervar_mapping: Dict[str, Tuple[str, Optional[str]]],
     csq_field_names: List[str]
 ) -> List[Dict]:
     """
@@ -338,6 +508,7 @@ def process_chromosome(
         hgnc_mapping: HGNC ID to symbol mapping
         inheritance_mapping: Gene to inheritance mode mapping
         omim_phenotype_mapping: Gene to OMIM phenotypes mapping
+        intervar_mapping: InterVar data mapping (chrom_pos_ref_alt_gene -> (classification, evidences))
         csq_field_names: List of CSQ field names
 
     Returns:
@@ -469,6 +640,31 @@ def process_chromosome(
             record['omim_inheritance'] = ' | '.join(inheritance_list) if inheritance_list else None
             record['omim_phenotype'] = ' | '.join(phenotype_list) if phenotype_list else None
 
+            # Add InterVar ACMG annotations
+            acmg_data = []
+            for gene in all_genes:
+                # Create InterVar lookup key: chrom_pos_ref_alt_gene
+                intervar_key = f"{chrom}_{pos}_{ref}_{alt}_{gene}"
+
+                if intervar_key in intervar_mapping:
+                    classification, evidences = intervar_mapping[intervar_key]
+                    acmg_data.append({
+                        "gene": gene,
+                        "ACMG_classification": classification,
+                        "ACMG_evidences": evidences
+                    })
+
+            # Get most significant ACMG classification
+            if acmg_data:
+                most_sig_class, most_sig_evid = get_most_significant_acmg(acmg_data)
+                record['ACMG_classification'] = most_sig_class
+                record['ACMG_evidences'] = most_sig_evid
+                record['ACMG_data'] = acmg_data
+            else:
+                record['ACMG_classification'] = None
+                record['ACMG_evidences'] = None
+                record['ACMG_data'] = None
+
             records.append(record)
 
     finally:
@@ -485,6 +681,7 @@ def process_vcf_parallel(
     hgnc_mapping: Dict[str, str],
     inheritance_mapping: Dict[str, str],
     omim_phenotype_mapping: Dict[str, str],
+    intervar_mapping: Dict[str, Tuple[str, Optional[str]]],
     output_file: Path,
     num_processes: int
 ) -> None:
@@ -499,6 +696,7 @@ def process_vcf_parallel(
         hgnc_mapping: HGNC ID to symbol mapping
         inheritance_mapping: Gene to inheritance mode mapping
         omim_phenotype_mapping: Gene to OMIM phenotypes mapping
+        intervar_mapping: InterVar data mapping
         output_file: Path for output Parquet file
         num_processes: Number of parallel processes
     """
@@ -533,7 +731,7 @@ def process_vcf_parallel(
 
     # Create worker arguments (distribute chromosomes across workers)
     worker_args = [
-        (chrom, str(vcf_file), hgnc_mapping, inheritance_mapping, omim_phenotype_mapping, csq_field_names)
+        (chrom, str(vcf_file), hgnc_mapping, inheritance_mapping, omim_phenotype_mapping, intervar_mapping, csq_field_names)
         for chrom in chromosomes
     ]
 
@@ -621,6 +819,13 @@ def main():
     )
 
     parser.add_argument(
+        "--intervar-file",
+        type=Path,
+        required=False,
+        help="Path to InterVar TSV file with ACMG annotations (optional)"
+    )
+
+    parser.add_argument(
         "--output",
         type=Path,
         required=True,
@@ -653,6 +858,10 @@ def main():
         print(f"[ERROR] OMIM info file not found: {args.omim_info}")
         sys.exit(1)
 
+    if args.intervar_file and not args.intervar_file.exists():
+        print(f"[ERROR] InterVar file not found: {args.intervar_file}")
+        sys.exit(1)
+
     # Create output directory if needed
     args.output.parent.mkdir(parents=True, exist_ok=True)
 
@@ -661,12 +870,20 @@ def main():
     inheritance_mapping = load_inheritance_mapping(args.inheritance_genes)
     omim_phenotype_mapping = load_omim_phenotype_mapping(args.omim_info)
 
+    # Load InterVar data if provided
+    intervar_mapping = {}
+    if args.intervar_file:
+        intervar_mapping = load_intervar_data(args.intervar_file)
+    else:
+        print("[INFO] No InterVar file provided, ACMG annotations will be empty")
+
     # Process VCF in parallel
     process_vcf_parallel(
         args.vcf,
         hgnc_mapping,
         inheritance_mapping,
         omim_phenotype_mapping,
+        intervar_mapping,
         args.output,
         args.processes
     )

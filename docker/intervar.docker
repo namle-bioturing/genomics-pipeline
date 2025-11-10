@@ -1,0 +1,36 @@
+FROM python:3.10-slim
+
+# Install minimal dependencies: perl, git, and build essentials
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    perl \
+    git \
+    wget \
+    tabix \
+    bcftools \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# Clone InterVar repository
+RUN apt-get update && apt-get install -y curl
+RUN git clone https://github.com/namle-bioturing/InterVar.git /apps/InterVar
+
+# Install Python dependencies
+RUN pip install --no-cache-dir pandas pyensembl
+
+# Move necessary files and clean up
+RUN mv /apps/InterVar/Intervar.py /apps/InterVar/intervardb /apps/InterVar/config.ini /apps/ && \
+    rm -rf /apps/InterVar
+
+# Make Intervar.py executable and add to PATH
+RUN chmod +x /apps/Intervar.py && \
+    ln -s /apps/Intervar.py /usr/local/bin/Intervar.py
+
+# Set working directory
+WORKDIR /work
+
+# Default command
+CMD ["/bin/bash"]
+
+
+# docker build -t nam.le_bioturing.com/intervar:latest -f intervar.docker .
