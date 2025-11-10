@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Benchmark Summary</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 24px;
+    }
+    section {
+      margin-bottom: 32px;
+    }
+    h2 {
+      margin-bottom: 8px;
+      font-size: 1.25rem;
+      text-align: center;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+    th, td {
+      border: 1px solid #555;
+      padding: 8px;
+      text-align: center;
+    }
+    tbody tr:nth-child(even) {
+      background-color: #e0e0e0;
+    }
+    tbody tr:nth-child(odd) {
+      background-color: #ffffff;
+    }
+    thead th {
+      background-color: #d0d0d0;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section>
+      <h2>WGS Novaseq PCR Free 30x</h2>
+      <table>
+        <thead>
+          <tr>
+            <th rowspan="2">Sample</th>
+            <th rowspan="2">Caller</th>
+            <th colspan="2">Recall</th>
+            <th colspan="2">Precision</th>
+            <th colspan="2">F1</th>
+          </tr>
+          <tr>
+            <th>SNP</th>
+            <th>INDEL</th>
+            <th>SNP</th>
+            <th>INDEL</th>
+            <th>SNP</th>
+            <th>INDEL</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td rowspan="2">HG001</td>
+            <td>GATK</td>
+            <td>0.97066</td>
+            <td>0.969902</td>
+            <td>0.993182</td>
+            <td>0.9913</td>
+            <td>0.981792</td>
+            <td>0.980484</td>
+          </tr>
+          <tr>
+            <td>DeepVariant</td>
+            <td>0.972904</td>
+            <td>0.975277</td>
+            <td>0.99827</td>
+            <td>0.996415</td>
+            <td>0.985424</td>
+            <td>0.985733</td>
+          </tr>
+          <tr>
+            <td rowspan="2">HG002</td>
+            <td>GATK</td>
+            <td>0.968576</td>
+            <td>0.968247</td>
+            <td>0.993903</td>
+            <td>0.991816</td>
+            <td>0.981076</td>
+            <td>0.97989</td>
+          </tr>
+          <tr>
+            <td>DeepVariant</td>
+            <td>0.970744</td>
+            <td>0.974198</td>
+            <td>0.998664</td>
+            <td>0.99687</td>
+            <td>0.998664</td>
+            <td>0.985404</td>
+          </tr>
+          <tr>
+            <td rowspan="2">HG003</td>
+            <td>GATK</td>
+            <td>0.968986</td>
+            <td>0.968844</td>
+            <td>0.993656</td>
+            <td>0.991522</td>
+            <td>0.981166</td>
+            <td>0.980052</td>
+          </tr>
+          <tr>
+            <td>DeepVariant</td>
+            <td>0.970964</td>
+            <td>0.974844</td>
+            <td>0.998306</td>
+            <td>0.996576</td>
+            <td>0.984445</td>
+            <td>0.98559</td>
+          </tr>
+          <tr>
+            <td rowspan="2">HG004</td>
+            <td>GATK</td>
+            <td>0.96926</td>
+            <td>0.969282</td>
+            <td>0.993429</td>
+            <td>0.991663</td>
+            <td>0.981196</td>
+            <td>0.980345</td>
+          </tr>
+          <tr>
+            <td>DeepVariant</td>
+            <td>0.971242</td>
+            <td>0.9749</td>
+            <td>0.9984</td>
+            <td>0.996705</td>
+            <td>0.984634</td>
+            <td>0.985682</td>
+          </tr>
+          <tr>
+            <td rowspan="2">HG005</td>
+            <td>GATK</td>
+            <td>0.969515</td>
+            <td>0.97192</td>
+            <td>0.993263</td>
+            <td>0.992942</td>
+            <td>0.993263</td>
+            <td>0.982319</td>
+          </tr>
+          <tr>
+            <td>DeepVariant</td>
+            <td>0.971708</td>
+            <td>0.974799</td>
+            <td>0.99848</td>
+            <td>0.997545</td>
+            <td>0.984912</td>
+            <td>0.986041</td>
+          </tr>
+          <tr>
+            <td rowspan="2">HG006</td>
+            <td>GATK</td>
+            <td>0.962358</td>
+            <td>0.946235</td>
+            <td>0.992222</td>
+            <td>0.987504</td>
+            <td>0.977062</td>
+            <td>0.966429</td>
+          </tr>
+          <tr>
+            <td>DeepVariant</td>
+            <td>0.966869</td>
+            <td>0.957783</td>
+            <td>0.997049</td>
+            <td>0.993186</td>
+            <td>0.981727</td>
+            <td>0.975163</td>
+          </tr>
+          <tr>
+            <td rowspan="2">HG007</td>
+            <td>GATK</td>
+            <td>0.965744</td>
+            <td>0.952719</td>
+            <td>0.992887</td>
+            <td>0.989336</td>
+            <td>0.979127</td>
+            <td>0.989336</td>
+          </tr>
+          <tr>
+            <td>DeepVariant</td>
+            <td>0.969136</td>
+            <td>0.962714</td>
+            <td>0.997756</td>
+            <td>0.994522</td>
+            <td>0.983238</td>
+            <td>0.97836</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>WES IDT 100X</h2>
+      <table>
+        <thead>
+          <tr>
+            <th rowspan="2">Sample</th>
+            <th rowspan="2">Caller</th>
+            <th colspan="2">Recall</th>
+            <th colspan="2">Precision</th>
+            <th colspan="2">F1</th>
+          </tr>
+          <tr>
+            <th>SNP</th>
+            <th>INDEL</th>
+            <th>SNP</th>
+            <th>INDEL</th>
+            <th>SNP</th>
+            <th>INDEL</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td rowspan="2">HG001</td>
+            <td>GATK</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>DeepVariant</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td rowspan="2">HG002</td>
+            <td>GATK</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>DeepVariant</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td rowspan="2">HG003</td>
+            <td>GATK</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>DeepVariant</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td rowspan="2">HG004</td>
+            <td>GATK</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>DeepVariant</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td rowspan="2">HG005</td>
+            <td>GATK</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>DeepVariant</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td rowspan="2">HG006</td>
+            <td>GATK</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>DeepVariant</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td rowspan="2">HG007</td>
+            <td>GATK</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>DeepVariant</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>WES IDT 75X</h2>
+      <table>
+        <thead>
+          <tr>
+            <th rowspan="2">Sample</th>
+            <th rowspan="2">Caller</th>
+            <th colspan="2">Recall</th>
+            <th colspan="2">Precision</th>
+            <th colspan="2">F1</th>
+          </tr>
+          <tr>
+            <th>SNP</th>
+            <th>INDEL</th>
+            <th>SNP</th>
+            <th>INDEL</th>
+            <th>SNP</th>
+            <th>INDEL</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td rowspan="2">HG001</td>
+            <td>GATK</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>DeepVariant</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td rowspan="2">HG002</td>
+            <td>GATK</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>DeepVariant</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td rowspan="2">HG003</td>
+            <td>GATK</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>DeepVariant</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td rowspan="2">HG004</td>
+            <td>GATK</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>DeepVariant</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td rowspan="2">HG005</td>
+            <td>GATK</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>DeepVariant</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td rowspan="2">HG006</td>
+            <td>GATK</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>DeepVariant</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td rowspan="2">HG007</td>
+            <td>GATK</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>DeepVariant</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+        <section>
+      <h2>WES IDT 50X</h2>
+      <table>
+        <thead>
+          <tr>
+            <th rowspan="2">Sample</th>
+            <th rowspan="2">Caller</th>
+            <th colspan="2">Recall</th>
+            <th colspan="2">Precision</th>
+            <th colspan="2">F1</th>
+          </tr>
+          <tr>
+            <th>SNP</th>
+            <th>INDEL</th>
+            <th>SNP</th>
+            <th>INDEL</th>
+            <th>SNP</th>
+            <th>INDEL</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td rowspan="2">HG001</td>
+            <td>GATK</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>DeepVariant</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td rowspan="2">HG002</td>
+            <td>GATK</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>DeepVariant</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td rowspan="2">HG003</td>
+            <td>GATK</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>DeepVariant</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td rowspan="2">HG004</td>
+            <td>GATK</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>DeepVariant</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td rowspan="2">HG005</td>
+            <td>GATK</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>DeepVariant</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td rowspan="2">HG006</td>
+            <td>GATK</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>DeepVariant</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td rowspan="2">HG007</td>
+            <td>GATK</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>DeepVariant</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+</body>
+</html>

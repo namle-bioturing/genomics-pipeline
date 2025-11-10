@@ -1,0 +1,27 @@
+FROM python:3.11-slim
+
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    tabix \
+    bcftools \
+    procps \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+RUN pip install --no-cache-dir \
+    polars==1.14.0 \
+    cyvcf2==0.31.1
+
+# Create working directory
+WORKDIR /work
+
+# Copy annotate.py script
+COPY annotate.py /usr/local/bin/annotate.py
+RUN chmod +x /usr/local/bin/annotate.py
+
+# Default command
+CMD ["/bin/bash"]
+
+# docker build -t nam.le_bioturing.com/annotate:latest -f annotate.docker .

@@ -44,7 +44,8 @@ tmux capture-pane -pt deepvariant-g400 -S -
 # Run bam
 bam=/mnt/disk1/namle/data/complete_g400/HG002.complete_g400.V350151728.grch38.bam
 bai=/mnt/disk1/namle/data/complete_g400/HG002.complete_g400.V350151728.grch38.bam.bai
-nextflow run parabricks.nf \
+nextflow run main_sr.nf \
+    -resume \
     --sample_id HG002 \
     --input "$bam,$bai" \
     --benchmark_vcf "/mnt/disk1/namle/data/benchmarks/HG002_GRCh38_1_22_v4.2.1_benchmark.vcf.gz" \

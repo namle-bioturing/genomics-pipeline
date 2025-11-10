@@ -30,6 +30,15 @@ params.containerOptions = "-v /mnt/nasdev2/namle/references:/references -v /mnt/
 params.intervar_container = 'nam.le_bioturing.com/intervar:latest'
 params.intervar_containerOptions = "-v /mnt/nasdev2/namle/references/annovar:/apps/annovar"
 
+// Annotate container configuration
+params.annotate_container = 'nam.le_bioturing.com/annotate:latest'
+params.annotate_containerOptions = "-v /mnt/nasdev2/namle/references:/references"
+
+// Reference files for annotation
+params.hgnc_mapping = "/references/hgnc.txt"
+params.inheritance_genes = "/references/inheritance_genes.tsv"
+params.omim_info = "/references/omim_info.txt"
+
 // Workflow
 workflow {
     // Create input channel
@@ -46,6 +55,14 @@ workflow {
 
     // Run InterVar on normalized VCF
     RUN_INTERVAR(NORMALIZE_VCF.out.normalized_vcf, NORMALIZE_VCF.out.normalized_vcf_index, params.sample)
+
+    // Run annotation script combining VEP and InterVar results
+    ANNOTATE_VCF(
+        RUN_VEP.out.vep_output,
+        RUN_VEP.out.vep_output_index,
+        RUN_INTERVAR.out.intervar_classification,
+        params.sample
+    )
 }
 
 // Process: Normalize VCF
@@ -213,6 +230,7 @@ process RUN_INTERVAR {
     script:
     """
     echo "[INTERVAR] Starting InterVar annotation at \$(date)"
+    echo "[INTERVAR] Working directory: \$(pwd)"
 
     # Run InterVar
     Intervar.py \
@@ -225,6 +243,45 @@ process RUN_INTERVAR {
         -t /apps/intervardb
 
     echo "[INTERVAR] InterVar annotation completed at \$(date)"
+    """
+}
+
+// Process: Annotate VCF with combined annotations
+process ANNOTATE_VCF {
+    container params.annotate_container
+    containerOptions params.annotate_containerOptions
+    publishDir "${params.outdir}", mode: 'copy', pattern: '*.parquet'
+
+    cpus params.threads
+    memory '32 GB'
+
+    tag "${sample}"
+
+    input:
+    path vep_vcf
+    path vep_vcf_index
+    path intervar_file
+    val sample
+
+    output:
+    path "${sample}.annotated.parquet", emit: annotated_parquet
+
+    script:
+    """
+    echo "[ANNOTATE] Starting combined annotation at \$(date)"
+
+    # Run annotate.py with all required inputs
+    annotate.py \
+        --vcf ${vep_vcf} \
+        --hgnc-mapping ${params.hgnc_mapping} \
+        --inheritance-genes ${params.inheritance_genes} \
+        --omim-info ${params.omim_info} \
+        --intervar-file ${intervar_file} \
+        --output ${sample}.annotated.parquet \
+        --processes ${task.cpus}
+
+    echo "[ANNOTATE] Combined annotation completed at \$(date)"
+    echo "[ANNOTATE] Output file: ${sample}.annotated.parquet"
     """
 }
 
