@@ -218,6 +218,9 @@ process RUN_INTERVAR {
 
     tag "${sample}"
 
+    // errorStrategy 'retry'
+    // maxRetries 1
+
     input:
     path normalized_vcf
     path normalized_vcf_index
@@ -229,6 +232,8 @@ process RUN_INTERVAR {
 
     script:
     """
+    set +u  # Disable unset variable errors for InterVar
+
     echo "[INTERVAR] Starting InterVar annotation at \$(date)"
     echo "[INTERVAR] Working directory: \$(pwd)"
 
