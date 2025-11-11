@@ -132,7 +132,7 @@ def example_4_rare_variants(parquet_file: Path, max_af: float = 0.01) -> None:
                 # pl.col("gnomadg_af").is_null()
                 pl.col("am_class").is_not_null()
             )
-            .select(["chrom", "pos", "ref", "alt", "gene", "gnomadg_af", "revel", "am_class"])  # Column pruning
+            .select(["chrom", "pos", "ref", "alt", "genes", "gnomadg_af", "revel", "am_class"])  # Column pruning
             .sort(["chrom", "pos"])
             .head(30)
             .collect()
@@ -159,7 +159,7 @@ def example_5_pathogenic_variants(parquet_file: Path) -> None:
                 pl.col("clinsig").str.contains("pathogenic") |
                 pl.col("clinsig").str.contains("likely_pathogenic")
             )
-            .select(["chrom", "pos", "ref", "alt", "gene", "clinsig"])  # Column pruning
+            .select(["chrom", "pos", "ref", "alt", "genes", "clinsig"])  # Column pruning
             .sort(["chrom", "pos"])
             .head(30)
             .collect()
@@ -197,12 +197,40 @@ def example_6_specific_region(parquet_file: Path, chrom: str = "chr17",
     print(result)
 
 
-def example_7_missense_with_prediction(df: pl.DataFrame) -> None:
+def example_7_acmg_classification(parquet_file: Path) -> None:
     """
-    Example 7: Get missense variants with damaging predictions, first 30.
+    Example 7: Lazy load + filter variants with ACMG classification, first 30.
+
+    Pattern: scan → filter ACMG → select columns → sort → limit → collect
     """
     print("\n" + "=" * 80)
-    print("EXAMPLE 7: Missense variants with damaging predictions (SIFT/PolyPhen), first 30")
+    print("EXAMPLE 7: Lazy load variants with ACMG classification, first 30")
+    print("=" * 80)
+
+    def query():
+        return (
+            pl.scan_parquet(parquet_file)
+            .filter(pl.col("ACMG_classification").is_not_null())
+            .select([
+                "chrom", "pos", "ref", "alt", "genes",
+                "ACMG_classification", "ACMG_evidences",
+                "consequence", "gnomadg_af"
+            ])  # Column pruning
+            .sort(["chrom", "pos"])
+            .head(30)
+            .collect()
+        )
+
+    result = time_query("Lazy: ACMG classification filter", query)
+    print(result)
+
+
+def example_8_missense_with_prediction(df: pl.DataFrame) -> None:
+    """
+    Example 8: Get missense variants with damaging predictions, first 30.
+    """
+    print("\n" + "=" * 80)
+    print("EXAMPLE 8: Missense variants with damaging predictions (SIFT/PolyPhen), first 30")
     print("=" * 80)
 
     def query():
@@ -224,12 +252,12 @@ def example_7_missense_with_prediction(df: pl.DataFrame) -> None:
     print(result)
 
 
-def example_8_variant_summary_stats(df: pl.DataFrame) -> None:
+def example_9_variant_summary_stats(df: pl.DataFrame) -> None:
     """
-    Example 8: Summary statistics - variants per chromosome.
+    Example 9: Summary statistics - variants per chromosome.
     """
     print("\n" + "=" * 80)
-    print("EXAMPLE 8: Summary statistics - variants per chromosome")
+    print("EXAMPLE 9: Summary statistics - variants per chromosome")
     print("=" * 80)
 
     stats = (
@@ -247,12 +275,12 @@ def example_8_variant_summary_stats(df: pl.DataFrame) -> None:
     print(stats)
 
 
-def example_9_top_genes(df: pl.DataFrame, top_n: int = 20) -> None:
+def example_10_top_genes(df: pl.DataFrame, top_n: int = 20) -> None:
     """
-    Example 9: Top genes with most variants.
+    Example 10: Top genes with most variants.
     """
     print("\n" + "=" * 80)
-    print(f"EXAMPLE 9: Top {top_n} genes with most variants")
+    print(f"EXAMPLE 10: Top {top_n} genes with most variants")
     print("=" * 80)
 
     top_genes = (
@@ -270,12 +298,12 @@ def example_9_top_genes(df: pl.DataFrame, top_n: int = 20) -> None:
     print(top_genes)
 
 
-def example_10_filter_multiple_conditions(df: pl.DataFrame) -> None:
+def example_11_filter_multiple_conditions(df: pl.DataFrame) -> None:
     """
-    Example 10: Complex query - rare, pathogenic, protein-altering variants.
+    Example 11: Complex query - rare, pathogenic, protein-altering variants.
     """
     print("\n" + "=" * 80)
-    print("EXAMPLE 10: Complex query - rare + pathogenic + protein-altering")
+    print("EXAMPLE 11: Complex query - rare + pathogenic + protein-altering")
     print("=" * 80)
 
     result = (
@@ -307,12 +335,12 @@ def example_10_filter_multiple_conditions(df: pl.DataFrame) -> None:
     print(result.select(["chrom", "pos", "ref", "alt", "gene", "consequence", "clinsig", "gnomadg_af"]).head(10))
 
 
-def example_11_export_subset(df: pl.DataFrame, output_file: str = "filtered_variants.parquet") -> None:
+def example_12_export_subset(df: pl.DataFrame, output_file: str = "filtered_variants.parquet") -> None:
     """
-    Example 11: Export filtered results to new Parquet file.
+    Example 12: Export filtered results to new Parquet file.
     """
     print("\n" + "=" * 80)
-    print("EXAMPLE 11: Export filtered results")
+    print("EXAMPLE 12: Export filtered results")
     print("=" * 80)
 
     # Filter for chromosome 1, rare variants
@@ -333,12 +361,12 @@ def example_11_export_subset(df: pl.DataFrame, output_file: str = "filtered_vari
     print(f"[SUCCESS] Exported to {output_file}")
 
 
-def example_12_null_handling(df: pl.DataFrame) -> None:
+def example_13_null_handling(df: pl.DataFrame) -> None:
     """
-    Example 12: Working with null values.
+    Example 13: Working with null values.
     """
     print("\n" + "=" * 80)
-    print("EXAMPLE 12: Null value handling")
+    print("EXAMPLE 13: Null value handling")
     print("=" * 80)
 
     # Count nulls in key columns
@@ -362,6 +390,114 @@ def example_12_null_handling(df: pl.DataFrame) -> None:
 
     print(f"\nFound {len(known_variants):,} variants with rsID")
     print(known_variants.select(["chrom", "pos", "ref", "alt", "gene", "rsid"]).head(10))
+
+
+def print_all_columns(parquet_file: Path) -> None:
+    """
+    Print all available columns in the Parquet file.
+    """
+    print("\n" + "=" * 80)
+    print("Available Columns in Dataset")
+    print("=" * 80)
+
+    # Scan just the schema without loading data
+    df = pl.scan_parquet(parquet_file)
+    columns = df.collect_schema().names()
+
+    print(f"\nTotal columns: {len(columns)}")
+    print("\nColumn names:")
+    for i, col in enumerate(columns, 1):
+        print(f"  {i:2d}. {col}")
+
+
+def export_to_tsv(
+    parquet_file: Path,
+    output_file: str = "filtered_variants.tsv",
+    filter_func=None,
+    columns: Optional[list[str]] = None
+) -> None:
+    """
+    Export filtered results to TSV file.
+
+    Args:
+        parquet_file: Input Parquet file path
+        output_file: Output TSV file path
+        filter_func: Optional function that takes a LazyFrame and returns a filtered LazyFrame
+        columns: Optional list of columns to export (exports all if None)
+
+    Example usage:
+        # Export all data
+        export_to_tsv(parquet_file, "all_variants.tsv")
+
+        # Export with custom filter
+        def my_filter(lf):
+            return lf.filter(pl.col("chrom") == "chr1")
+        export_to_tsv(parquet_file, "chr1_variants.tsv", filter_func=my_filter)
+
+        # Export specific columns
+        export_to_tsv(parquet_file, "subset.tsv",
+                     columns=["chrom", "pos", "ref", "alt", "gene"])
+    """
+    print("\n" + "=" * 80)
+    print("Export to TSV")
+    print("=" * 80)
+
+    # Start with lazy scan
+    lf = pl.scan_parquet(parquet_file)
+
+    # Apply filter if provided
+    if filter_func:
+        lf = filter_func(lf)
+
+    # Select columns if specified
+    if columns:
+        lf = lf.select(columns)
+
+    # Collect and write to TSV
+    print(f"\n[INFO] Processing data...")
+    df = lf.collect()
+
+    # Handle nested columns (lists, structs) by converting to JSON strings
+    # CSV/TSV format doesn't support nested data structures
+    print(f"[INFO] Converting nested columns to JSON strings for CSV export...")
+
+    # Identify list/struct columns and convert them to JSON strings
+    nested_cols = []
+    for col_name in df.columns:
+        dtype = df[col_name].dtype
+        if isinstance(dtype, (pl.List, pl.Struct)):
+            nested_cols.append(col_name)
+
+    if nested_cols:
+        print(f"[INFO] Found nested columns: {', '.join(nested_cols)}")
+        # Convert nested columns to JSON strings
+        # We need to convert to Python objects first, then serialize to JSON
+        import json
+
+        for col in nested_cols:
+            dtype = df[col].dtype
+            if isinstance(dtype, pl.List):
+                # For list columns: convert to JSON array string
+                # Extract as Python list, serialize to JSON string
+                python_data = df[col].to_list()
+                json_strings = [json.dumps(item) if item is not None else None for item in python_data]
+                df = df.with_columns(
+                    pl.Series(col, json_strings, dtype=pl.Utf8)
+                )
+            elif isinstance(dtype, pl.Struct):
+                # For struct columns: use built-in json_encode
+                df = df.with_columns(
+                    pl.col(col).struct.json_encode().alias(col)
+                )
+
+    print(f"[INFO] Exporting {len(df):,} records to {output_file}")
+    df.write_csv(output_file, separator="\t")
+
+    print(f"[SUCCESS] Exported to {output_file}")
+
+    # Show preview
+    print(f"\nPreview (first 5 rows):")
+    print(df.head(5))
 
 
 def main():
@@ -413,20 +549,40 @@ def main():
     print("=" * 80)
 
     try:
+        # First, show all available columns
+        print_all_columns(parquet_file)
+
         example_1_chromosome_position(parquet_file)
-        example_2_specific_gene(parquet_file, "BRCA1")
+        # example_2_specific_gene(parquet_file, "BRCA1")
         example_3_high_impact_variants(parquet_file)
         example_4_rare_variants(parquet_file, max_af=0.01)
         example_5_pathogenic_variants(parquet_file)
         example_6_specific_region(parquet_file, chrom="chr17", start=43000000, end=43100000)
+        example_7_acmg_classification(parquet_file)
 
         # Optional examples (commented out by default)
-        # example_7_missense_with_prediction(parquet_file)
-        # example_8_variant_summary_stats(parquet_file)
-        # example_9_top_genes(parquet_file, top_n=20)
-        # example_10_filter_multiple_conditions(parquet_file)
-        # example_11_export_subset(parquet_file, "filtered_variants.parquet")
-        # example_12_null_handling(parquet_file)
+        # example_8_missense_with_prediction(parquet_file)
+        # example_9_variant_summary_stats(parquet_file)
+        # example_10_top_genes(parquet_file, top_n=20)
+        # example_11_filter_multiple_conditions(parquet_file)
+        # example_12_export_subset(parquet_file, "filtered_variants.parquet")
+        # example_13_null_handling(parquet_file)
+
+        # Export examples - uncomment to use
+        # Export all chr1 variants to TSV
+        export_to_tsv(
+            parquet_file,
+            "chr1_variants.tsv",
+            filter_func=lambda lf: lf.filter(pl.col("chrom") == "chr1")
+        )
+
+        # Export BRCA1 variants with specific columns
+        # export_to_tsv(
+        #     parquet_file,
+        #     "brca1_variants.tsv",
+        #     filter_func=lambda lf: lf.filter(pl.col("gene") == "BRCA1"),
+        #     columns=["chrom", "pos", "ref", "alt", "gene", "consequence", "gnomadg_af"]
+        # )
 
         print("\n" + "=" * 80)
         print("✓ All examples completed successfully!")

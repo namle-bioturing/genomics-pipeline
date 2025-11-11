@@ -216,7 +216,7 @@ process RUN_VEP {
 process RUN_INTERVAR {
     publishDir "${params.outdir}", mode: 'copy', pattern: '*.intervar*'
 
-    cpus params.threads
+    cpus 10
     memory '20 GB'
 
     tag "${sample}"

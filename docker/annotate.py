@@ -210,15 +210,20 @@ def load_intervar_data(intervar_file: Path) -> Dict[str, Tuple[str, Optional[str
 
         # Build mapping dictionary
         mapping = {}
+        skipped_count = 0
 
         for row in df.iter_rows(named=False):
             chrom, start, ref, alt, gene, intervar = row
 
             if not all([chrom, start, ref, alt, gene, intervar]):
+                skipped_count += 1
                 continue
 
-            # Create key
-            key = f"{chrom}_{start}_{ref}_{alt}_{gene}"
+            # Normalize chromosome name (remove 'chr' prefix if present for consistent matching)
+            chrom_normalized = chrom.replace('chr', '') if chrom.startswith('chr') else chrom
+
+            # Create key with normalized chromosome
+            key = f"{chrom_normalized}_{start}_{ref}_{alt}_{gene}"
 
             # Parse InterVar evidence
             classification, evidences = parse_intervar_evidence(intervar)
@@ -226,7 +231,11 @@ def load_intervar_data(intervar_file: Path) -> Dict[str, Tuple[str, Optional[str
             if classification:
                 mapping[key] = (classification, evidences)
 
-        print(f"[INFO] Loaded InterVar mapping: {len(mapping):,} entries")
+        print(f"[INFO] Loaded InterVar mapping: {len(mapping):,} entries (skipped {skipped_count:,} invalid rows)")
+        if len(mapping) > 0:
+            # Print first 3 keys as examples for debugging
+            example_keys = list(mapping.keys())[:3]
+            print(f"[INFO] Example InterVar keys: {example_keys}")
         return mapping
 
     except Exception as e:
@@ -519,6 +528,8 @@ def process_chromosome(
 
     records = []
     variant_count = 0
+    acmg_match_count = 0
+    acmg_lookup_count = 0
 
     # Open VCF for this worker (cyvcf2 is not thread-safe, each worker needs its own handle)
     vcf = VCF(vcf_path)
@@ -629,7 +640,9 @@ def process_chromosome(
                 if field_name in CSQ_FIELD_MAPPING:
                     output_name = CSQ_FIELD_MAPPING[field_name]
                     if idx < len(picked_csq_values):
-                        record[output_name] = picked_csq_values[idx] if picked_csq_values[idx] else None
+                        # Convert empty strings to None, keep non-empty values as strings
+                        value = picked_csq_values[idx]
+                        record[output_name] = value if value and value.strip() else None
                     else:
                         record[output_name] = None
 
@@ -642,17 +655,24 @@ def process_chromosome(
 
             # Add InterVar ACMG annotations
             acmg_data = []
+            # Normalize chromosome name (remove 'chr' prefix if present for consistent matching)
+            chrom_normalized = chrom.replace('chr', '') if chrom.startswith('chr') else chrom
+
             for gene in all_genes:
-                # Create InterVar lookup key: chrom_pos_ref_alt_gene
-                intervar_key = f"{chrom}_{pos}_{ref}_{alt}_{gene}"
+                acmg_lookup_count += 1
+                # Create InterVar lookup key: chrom_pos_ref_alt_gene (with normalized chromosome)
+                intervar_key = f"{chrom_normalized}_{pos}_{ref}_{alt}_{gene}"
 
                 if intervar_key in intervar_mapping:
+                    acmg_match_count += 1
                     classification, evidences = intervar_mapping[intervar_key]
                     acmg_data.append({
                         "gene": gene,
                         "ACMG_classification": classification,
                         "ACMG_evidences": evidences
                     })
+                elif acmg_lookup_count <= 5:  # Print first 5 failed lookups for debugging
+                    print(f"[DEBUG] [{chromosome}] No InterVar match for key: {intervar_key}")
 
             # Get most significant ACMG classification
             if acmg_data:
@@ -672,6 +692,13 @@ def process_chromosome(
 
     variants_extracted = len(records)
     print(f"[INFO] [{chromosome}] Completed: {variant_count:,} variants → {variants_extracted:,} variants with PICK=1 extracted")
+
+    # Report ACMG matching statistics
+    if acmg_lookup_count > 0:
+        match_rate = (acmg_match_count / acmg_lookup_count) * 100
+        print(f"[INFO] [{chromosome}] ACMG matches: {acmg_match_count:,}/{acmg_lookup_count:,} ({match_rate:.1f}%)")
+    else:
+        print(f"[INFO] [{chromosome}] No ACMG lookups performed")
 
     return records
 
@@ -759,7 +786,9 @@ def process_vcf_parallel(
 
     # Convert to Polars DataFrame once (in main process)
     print(f"[INFO] Creating Polars DataFrame with {len(all_records):,} records...")
-    df = pl.DataFrame(all_records, infer_schema_length=10000)
+    # Use larger infer_schema_length or all records (whichever is smaller) to ensure consistent schema
+    schema_length = min(len(all_records), 100000)
+    df = pl.DataFrame(all_records, infer_schema_length=schema_length)
 
     # Write to Parquet with ZSTD compression
     print(f"[INFO] Writing Parquet file...")
