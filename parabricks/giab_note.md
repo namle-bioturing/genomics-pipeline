@@ -52,7 +52,7 @@ nextflow run main_sr.nf \
     --benchmark_bed "/mnt/disk1/namle/data/benchmarks/HG002_GRCh38_1_22_v4.2.1_benchmark_noinconsistent.bed" \
     --sample_type "wgs" \
     --input_type "bam" \
-    --gg_deepvariant_model "/mnt/disk1/namle/data/complete_g400/weights-60-0.993753.ckpt" \
+    --gg_deepvariant_model "/mnt/disk1/namle/data/complete_g400/models/weights-60-0.993753.ckpt" \
     --output_dir "/mnt/disk1/namle/run/giab/output/complete_g400"
 ```
 

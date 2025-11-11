@@ -233,14 +233,16 @@ process google_deepvariant {
     tuple val(sample_id), path(bam)
     path reference
     path reference_fai
-    path model_file
+    path model_dir, stageAs: 'models'
 
     output:
     tuple val(sample_id), path("${sample_id}.google_deepvariant.vcf.gz")
 
     script:
     def model_type = params.sample_type == "wes" ? "WES" : "WGS"
-    def model_flag = model_file.name != 'NO_MODEL_FILE' ? "--customized_model ${model_file}" : ""
+    // Extract just the basename of the model file for the relative path
+    def model_basename = params.gg_deepvariant_model ? file(params.gg_deepvariant_model).name : ""
+    def model_flag = model_basename ? "--customized_model models/${model_basename}" : ""
     """
     /opt/deepvariant/bin/run_deepvariant \\
         --model_type ${model_type} \\
@@ -313,8 +315,9 @@ workflow {
         : Channel.value(file('NO_MODEL_FILE'))
 
     // Handle optional google deepvariant model file
+    // If model path is provided, stage the entire parent directory
     gg_model_ch = params.gg_deepvariant_model
-        ? Channel.fromPath(params.gg_deepvariant_model).collect()
+        ? Channel.fromPath(file(params.gg_deepvariant_model).parent, type: 'dir')
         : Channel.value(file('NO_MODEL_FILE'))
 
     // Handle input based on input_type

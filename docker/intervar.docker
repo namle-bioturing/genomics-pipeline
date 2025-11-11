@@ -1,58 +1,84 @@
-# Multi-stage build for smaller image size
-FROM python:3.10-slim AS perl-builder
+# Base image with Python 3
+FROM python:3.10-slim
 
-# Install build dependencies
+# Install system dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     build-essential \
-    wget \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Perl 5.32.1 from source with thread support
-RUN wget https://www.cpan.org/src/5.0/perl-5.32.1.tar.gz && \
-    tar -xzf perl-5.32.1.tar.gz && \
-    cd perl-5.32.1 && \
-    ./Configure -des -Dprefix=/usr/local -Dusethreads && \
-    make -j$(nproc) && \
-    make install && \
-    cd .. && \
-    rm -rf perl-5.32.1 perl-5.32.1.tar.gz
-
-# Final stage
-FROM python:3.10-slim
-
-# Install runtime dependencies only
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
     git \
     wget \
     curl \
     tabix \
     bcftools \
     procps \
+    ca-certificates \
+    zlib1g-dev \
+    libbz2-dev \
+    libncurses5-dev \
+    libgdbm-dev \
+    libssl-dev \
+    libreadline-dev \
+    libexpat-dev \
+    libdb-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy Perl from builder stage
-COPY --from=perl-builder /usr/local /usr/local
+# Install Perl 5.32.1 with full configuration (conda-like)
+RUN wget https://www.cpan.org/src/5.0/perl-5.32.1.tar.gz && \
+    tar -xzf perl-5.32.1.tar.gz && \
+    cd perl-5.32.1 && \
+    ./Configure -des \
+    -Dprefix=/usr/local \
+    -Dusethreads \
+    -Duseshrplib \
+    -Duse64bitall \
+    -Dvendorprefix=/usr/local \
+    -Dman1dir=none \
+    -Dman3dir=none \
+    -Accflags="-fPIC" \
+    -Doptimize="-O2" && \
+    make -j$(nproc) && \
+    make install && \
+    cd .. && \
+    rm -rf perl-5.32.1 perl-5.32.1.tar.gz
 
-# Verify Perl installation and thread support
-RUN perl -v && \
-    perl -V:usethreads && \
-    echo "Perl thread support verified"
+# Install CPAN modules (including ANNOVAR dependencies)
+RUN cpan App::cpanminus && \
+    cpanm --notest \
+    DBI \
+    DBD::SQLite \
+    Archive::Zip \
+    Test::More \
+    File::Path \
+    Getopt::Long \
+    Pod::Usage \
+    List::Util \
+    Scalar::Util \
+    IO::Compress::Gzip \
+    JSON \
+    LWP::Simple \
+    Bio::Perl \
+    Bio::DB::Fasta \
+    File::Basename \
+    File::Spec \
+    Cwd
 
-# Clone InterVar repository
-RUN git clone https://github.com/namle-bioturing/InterVar.git /apps/InterVar
+# Set environment variables
+ENV LC_ALL=C.UTF-8
+ENV LANG=C.UTF-8
+ENV BASH_ENV=/etc/bash.bashrc
+
+# Create a bash configuration that disables strict mode for Perl scripts
+RUN echo 'set +u' >> /etc/bash.bashrc && \
+    echo 'set +e' >> /etc/bash.bashrc
 
 # Install Python dependencies
-RUN pip install --no-cache-dir pandas pyensembl
+RUN pip3 install --no-cache-dir pandas pyensembl
 
-# Move necessary files and clean up
-RUN mv /apps/InterVar/Intervar.py /apps/InterVar/intervardb /apps/InterVar/config.ini /apps/ && \
-    rm -rf /apps/InterVar
-
-# Make Intervar.py executable and add to PATH
-RUN chmod +x /apps/Intervar.py && \
+# Clone InterVar and setup
+RUN git clone https://github.com/namle-bioturing/InterVar.git /apps/InterVar && \
+    mv /apps/InterVar/Intervar.py /apps/InterVar/intervardb /apps/InterVar/config.ini /apps/ && \
+    rm -rf /apps/InterVar && \
+    chmod +x /apps/Intervar.py && \
     ln -s /apps/Intervar.py /usr/local/bin/Intervar.py
 
 # Set working directory
@@ -61,4 +87,5 @@ WORKDIR /work
 # Default command
 CMD ["/bin/bash"]
 
+# Build command:
 # docker build -t nam.le_bioturing.com/intervar:latest -f intervar.docker .
