@@ -11,6 +11,7 @@ params.sample_type = "wgs" // wgs or wes
 params.pb_deepvariant_model = null
 params.gg_deepvariant_model = null
 params.output_dir = null
+params.interval = "-L chr1 -L chr2 -L chr3 -L chr4 -L chr5 -L chr7 -L chr8 -L chr9 -L chr10 -L chr11 -L chr12 -L chr13 -L chr14 -L chr15 -L chr16 -L chr17 -L chr18 -L chr19 -L chr20 -L chr21 -L chr22 -L chrX -L chrY -L chrM"
 
 // Fixed references
 params.reference = "/mnt/disk1/namle/data/references/Homo_sapiens_assembly38.fasta"
@@ -74,7 +75,7 @@ process markdup {
     path reference
 
     output:
-    tuple val(sample_id), path("${sample_id}.markdup.bam")
+    tuple val(sample_id), path("${sample_id}.markdup.bam"), path("${sample_id}.markdup.bam.bai")
 
     script:
     """
@@ -93,7 +94,7 @@ process bqsr {
     publishDir "${params.output_dir}/${params.sample_id}", mode: 'copy'
 
     input:
-    tuple val(sample_id), path(bam)
+    tuple val(sample_id), path(bam), path(bai)
     path reference
     path known_sites
 
@@ -107,28 +108,6 @@ process bqsr {
         --in-bam ${bam} \\
         --knownSites ${known_sites} \\
         --out-recal-file ${sample_id}.recal
-    """
-}
-
-process applybqsr {
-    container "nvcr.io/nvidia/clara/clara-parabricks:4.5.0-1"
-    containerOptions "--gpus '\"device=1,4\"'"
-    publishDir "${params.output_dir}/${params.sample_id}", mode: 'copy'
-
-    input:
-    tuple val(sample_id), path(bam), path(recal_file)
-    path reference
-
-    output:
-    tuple val(sample_id), path("${sample_id}.recal.bam")
-
-    script:
-    """
-    pbrun applybqsr \\
-        --ref ${reference} \\
-        --in-bam ${bam} \\
-        --in-recal-file ${recal_file} \\
-        --out-bam ${sample_id}.recal.bam
     """
 }
 
@@ -153,6 +132,7 @@ process haplotypecaller {
         --ref ${reference} \\
         --in-bam ${bam} \\
         --in-recal-file ${recal_file} \\
+        ${params.interval} \\
         --out-variants ${sample_id}.haplotypecaller.vcf
     """
 }
@@ -168,7 +148,7 @@ process germline {
     path known_sites
 
     output:
-    tuple val(sample_id), path("${sample_id}.bam"), emit: bam
+    tuple val(sample_id), path("${sample_id}.bam"), path("${sample_id}.bam.bai"), emit: bam
     tuple val(sample_id), path("${sample_id}.germline.vcf"), emit: vcf
     path "${sample_id}.recal"
 
@@ -220,6 +200,7 @@ process deepvariant {
         --in-bam ${bam} \\
         --num-streams-per-gpu 1 \\
         --out-variants ${sample_id}.deepvariant.vcf \\
+        ${params.interval} \\
         ${wes_flag} \\
         ${model_flag}
     """
@@ -230,7 +211,7 @@ process google_deepvariant {
     publishDir "${params.output_dir}/${params.sample_id}", mode: 'copy'
 
     input:
-    tuple val(sample_id), path(bam)
+    tuple val(sample_id), path(bam), path(bai)
     path reference
     path reference_fai
     path model_dir, stageAs: 'models'
@@ -330,20 +311,19 @@ workflow {
         bamsort(bam_ch, reference_ch)
         markdup(bamsort.out, reference_ch)
         bqsr(markdup.out, reference_ch, known_sites_ch)
-        applybqsr(bqsr.out, reference_ch)
 
-        // Extract recal file for haplotypecaller
+        // Extract BAM from markdup and recal file from bqsr for haplotypecaller
+        markdup_bam_ch = markdup.out.map { sample_id, bam, bai -> [sample_id, bam] }
         recal_file_ch = bqsr.out.map { sample_id, bam, recal -> recal }
-        recal_bam_ch = applybqsr.out
 
-        haplotypecaller(recal_bam_ch, reference_ch, recal_file_ch)
+        haplotypecaller(markdup_bam_ch, reference_ch, recal_file_ch)
 
         // Run deepvariant on markdup BAM (wait for haplotypecaller to complete)
         markdup_for_dv = markdup.out.combine(haplotypecaller.out.map { it[0] })
-            .map { sample_id, bam, hc_sample_id -> [sample_id, bam] }
+            .map { sample_id, bam, bai, hc_sample_id -> [sample_id, bam] }
         deepvariant(markdup_for_dv, reference_ch, pb_model_ch)
 
-        // Run google deepvariant on markdup BAM
+        // Run google deepvariant on markdup BAM with index
         google_deepvariant(markdup.out, reference_ch, reference_fai_ch, gg_model_ch)
 
         // Set vcf channels for benchmarking
@@ -354,7 +334,12 @@ workflow {
         fq_ch = Channel.of([params.sample_id, fq_list])
 
         germline(fq_ch, reference_ch, known_sites_ch)
-        deepvariant(germline.out.bam, reference_ch, pb_model_ch)
+
+        // Extract BAM only for parabricks deepvariant
+        germline_bam_only = germline.out.bam.map { sample_id, bam, bai -> [sample_id, bam] }
+        deepvariant(germline_bam_only, reference_ch, pb_model_ch)
+
+        // Pass BAM with index to google deepvariant
         google_deepvariant(germline.out.bam, reference_ch, reference_fai_ch, gg_model_ch)
 
         // Set vcf channels for benchmarking

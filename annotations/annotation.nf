@@ -26,9 +26,12 @@ params.outdir = "."
 params.container = 'nam.le_bioturing.com/ensembl-vep:release_115.2'
 params.containerOptions = "-v /mnt/nasdev2/namle/references:/references -v /mnt/nasdev2/namle/.vep:/opt/vep/.vep"
 
-// InterVar container configuration
-params.intervar_container = 'nam.le_bioturing.com/intervar:latest'
-params.intervar_containerOptions = "-v /mnt/nasdev2/namle/references/annovar:/apps/annovar"
+// InterVar local paths
+params.intervar_dir = "/mnt/nasdev2/namle/references/intervar"
+params.annovar_dir = "/mnt/nasdev2/namle/references/annovar"
+// params.intervar_py = "/mnt/nasdev2/namle/references/InterVar/Intervar.py"
+// params.intervar_config = "/mnt/nasdev2/namle/references/config.ini"
+// params.intervar_db = "/mnt/nasdev2/namle/references/intervardb"
 
 // Annotate container configuration
 params.annotate_container = 'nam.le_bioturing.com/annotate:latest'
@@ -43,6 +46,8 @@ params.omim_info = "/references/omim_info.txt"
 workflow {
     // Create input channel
     vcf_ch = Channel.fromPath(params.vcf, checkIfExists: true)
+    intervar_ch = Channel.fromPath(params.intervar_dir, checkIfExists: true)
+    annovar_ch = Channel.fromPath(params.annovar_dir, checkIfExists: true)
 
     // Run normalization
     NORMALIZE_VCF(vcf_ch, params.sample)
@@ -54,7 +59,7 @@ workflow {
     RUN_VEP(NORMALIZE_VCF.out.normalized_vcf, NORMALIZE_VCF.out.normalized_vcf_index, params.sample)
 
     // Run InterVar on normalized VCF
-    RUN_INTERVAR(NORMALIZE_VCF.out.normalized_vcf, NORMALIZE_VCF.out.normalized_vcf_index, params.sample)
+    RUN_INTERVAR(NORMALIZE_VCF.out.normalized_vcf, NORMALIZE_VCF.out.normalized_vcf_index, params.sample, intervar_ch, annovar_ch)
 
     // Run annotation script combining VEP and InterVar results
     ANNOTATE_VCF(
@@ -207,10 +212,8 @@ process RUN_VEP {
     """
 }
 
-// Process: Run InterVar annotation
+// Process: Run InterVar annotation (runs locally, not in Docker)
 process RUN_INTERVAR {
-    container params.intervar_container
-    containerOptions params.intervar_containerOptions
     publishDir "${params.outdir}", mode: 'copy', pattern: '*.intervar*'
 
     cpus params.threads
@@ -218,34 +221,36 @@ process RUN_INTERVAR {
 
     tag "${sample}"
 
-    // errorStrategy 'retry'
-    // maxRetries 1
-
     input:
     path normalized_vcf
     path normalized_vcf_index
     val sample
+    path intervar_dir
+    path annovar_dir
 
     output:
     path "${sample}.intervar.hg38_multianno.txt", emit: intervar_output
     path "${sample}.intervar.hg38_multianno.txt.intervar", emit: intervar_classification
 
     script:
-    """
-    set +u  # Disable unset variable errors for InterVar
 
+    def intervar_script = "${intervar_dir}/Intervar.py"
+    def intervar_config = "${intervar_dir}/config.ini"
+    def intervar_db = "${intervar_dir}/intervardb"
+
+    """
     echo "[INTERVAR] Starting InterVar annotation at \$(date)"
     echo "[INTERVAR] Working directory: \$(pwd)"
 
-    # Run InterVar
-    Intervar.py \
-        -c /apps/config.ini \
+    # Run InterVar locally
+    python ${intervar_script} \
+        -c ${intervar_config} \
         -b hg38 \
         -i ${normalized_vcf} \
         --input_type=VCF \
         -o ${sample}.intervar \
         --threads ${task.cpus} \
-        -t /apps/intervardb
+        -t ${intervar_db}
 
     echo "[INTERVAR] InterVar annotation completed at \$(date)"
     """
