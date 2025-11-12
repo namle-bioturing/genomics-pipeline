@@ -260,4 +260,7 @@ tmux kill-session -t genomics-annotation
 
 # View logs
 tmux capture-pane -pt genomics-annotation -S -
+
+
+tmux capture-pane -pt genomics-annotation -S - | tail -n 30 -f 
 ```

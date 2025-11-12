@@ -4,7 +4,7 @@ High-performance parallel VEP-annotated VCF processor using cyvcf2, polars, and 
 
 This script processes VEP-annotated VCF files in parallel by chromosome. For each variant, it:
 - Selects the canonical transcript (PICK=1) for detailed annotations
-- Collects all genes from all CSQ entries and stores them in a 'genes' field
+- Extracts the gene from the PICK=1 transcript and stores it in a 'gene' field
 - Annotates with OMIM inheritance patterns and phenotype information
 Output is in Parquet format with one row per variant.
 """
@@ -17,7 +17,7 @@ import signal
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import polars as pl
 from cyvcf2 import VCF
@@ -99,8 +99,8 @@ CSQ_FIELD_MAPPING = {
     'MAX_AF': 'max_af',
     'MAX_AF_POPS': 'max_af_pops',
 
-    # Transcript selection
-    # 'PICK': 'pick',
+    # Others
+    'Gene': 'ensg'
 }
 
 
@@ -241,53 +241,6 @@ def load_intervar_data(intervar_file: Path) -> Dict[str, Tuple[str, Optional[str
     except Exception as e:
         print(f"[ERROR] Error loading InterVar data: {e}")
         sys.exit(1)
-
-
-def get_most_significant_acmg(acmg_data: List[Dict]) -> Tuple[Optional[str], Optional[str]]:
-    """
-    Get the most significant ACMG classification and evidences (optimized).
-
-    Significance order:
-    1. Pathogenic
-    2. Likely pathogenic
-    3. Uncertain significance
-    4. Likely benign
-    5. Benign
-
-    Args:
-        acmg_data: List of dicts with "ACMG_classification" and "ACMG_evidences" keys
-
-    Returns:
-        (most_significant_classification, most_significant_evidences)
-    """
-    if not acmg_data:
-        return None, None
-
-    # Rank mapping for quick lookup
-    rank_map = {
-        "Pathogenic": 0,
-        "Likely pathogenic": 1,
-        "Uncertain significance": 2,
-        "Likely benign": 3,
-        "Benign": 4
-    }
-
-    best_classification = None
-    best_evidences = None
-    best_rank = 999
-
-    for entry in acmg_data:
-        classification = entry.get("ACMG_classification")
-        if not classification:
-            continue
-
-        rank = rank_map.get(classification, 999)
-        if rank < best_rank:
-            best_rank = rank
-            best_classification = classification
-            best_evidences = entry.get("ACMG_evidences")
-
-    return best_classification, best_evidences
 
 
 def load_hgnc_mapping(hgnc_file: Path) -> Dict[str, str]:
@@ -453,10 +406,10 @@ def check_tabix_index(vcf_path: Path) -> None:
     Raises:
         SystemExit if index doesn't exist
     """
-    tbi_path = Path(str(vcf_path) + '.tbi')
-    if not tbi_path.exists():
-        print(f"[ERROR] Tabix index not found: {tbi_path}")
-        print(f"[ERROR] Please create index with: tabix -p vcf {vcf_path}")
+    csi_path = Path(str(vcf_path) + '.csi')
+    if not csi_path.exists():
+        print(f"[ERROR] Index file not found: {csi_path}")
+        print(f"[ERROR] Please create index with: bcftools index {vcf_path}")
         sys.exit(1)
 
 
@@ -506,10 +459,11 @@ def process_chromosome(
     inheritance_mapping: Dict[str, str],
     omim_phenotype_mapping: Dict[str, str],
     intervar_mapping: Dict[str, Tuple[str, Optional[str]]],
-    csq_field_names: List[str]
-) -> List[Dict]:
+    csq_field_names: List[str],
+    output_dir: Path
+) -> Dict[str, int]:
     """
-    Process all variants in a single chromosome (worker function).
+    Process all variants in a single chromosome and write Parquet file (worker function).
 
     Args:
         chromosome: Chromosome name to process
@@ -519,9 +473,10 @@ def process_chromosome(
         omim_phenotype_mapping: Gene to OMIM phenotypes mapping
         intervar_mapping: InterVar data mapping (chrom_pos_ref_alt_gene -> (classification, evidences))
         csq_field_names: List of CSQ field names
+        output_dir: Directory to write Parquet files
 
     Returns:
-        List of record dictionaries (one per variant with PICK=1 transcript)
+        Dictionary with statistics: {chromosome, variant_count, variants_extracted}
     """
     # Pre-compute CSQ field indices for O(1) lookup
     csq_field_indices = {name: idx for idx, name in enumerate(csq_field_names)}
@@ -564,8 +519,14 @@ def process_chromosome(
                 format_fields['dp'] = variant.gt_depths[0] if (variant.gt_depths is not None and len(variant.gt_depths) > 0) else None
                 format_fields['gq'] = variant.gt_quals[0] if (variant.gt_quals is not None and len(variant.gt_quals) > 0) else None
 
-                if hasattr(variant, 'gt_alt_depths') and variant.gt_alt_depths is not None and len(variant.gt_alt_depths) > 0:
-                    format_fields['ad'] = variant.gt_alt_depths[0]
+                ad_values = variant.format('AD')
+                if ad_values is not None and len(ad_values) > 0:
+                    ad_array = ad_values[0]  # Returns array [ref_depth, alt_depth]
+                    # Convert to "ref_depth:alt_depth" format
+                    if ad_array is not None and len(ad_array) >= 2:
+                        format_fields['ad'] = f"{ad_array[0]}:{ad_array[1]}"
+                    else:
+                        format_fields['ad'] = None
                 else:
                     format_fields['ad'] = None
             else:
@@ -587,8 +548,7 @@ def process_chromosome(
             # Split CSQ by comma (multiple consequences)
             csq_entries = csq_string.split(',')
 
-            # First pass: collect all genes from all CSQ entries
-            all_genes: Set[str] = set()
+            # Find the PICK=1 transcript
             picked_csq_values = None
 
             for csq_entry in csq_entries:
@@ -602,16 +562,12 @@ def process_chromosome(
                         if csq_values[bam_edit_idx] == 'FAILED':
                             continue
 
-                    # Extract gene using priority logic with pre-computed indices
-                    gene = extract_gene_from_csq(csq_values, csq_field_indices, hgnc_mapping)
-                    if gene:
-                        all_genes.add(gene)
-
                     # Check if this is the picked transcript
                     pick_idx = csq_field_indices.get('PICK')
                     if pick_idx is not None and pick_idx < len(csq_values):
                         if csq_values[pick_idx] == '1':
                             picked_csq_values = csq_values
+                            break  # Found PICK=1, stop searching
 
                 except Exception as e:
                     print(f"[WARNING] [{chromosome}] Error parsing CSQ entry at {chrom}:{pos}: {e}")
@@ -621,6 +577,9 @@ def process_chromosome(
             if not picked_csq_values:
                 continue
 
+            # Extract gene from the picked transcript only
+            gene = extract_gene_from_csq(picked_csq_values, csq_field_indices, hgnc_mapping)
+
             # Build record from the picked transcript
             record = {
                 'chrom': chrom,
@@ -628,7 +587,7 @@ def process_chromosome(
                 'ref': ref,
                 'alt': alt,
                 'qual': qual,
-                'genes': list(all_genes),  # Store all genes as a list
+                'gene': gene,  # Store single gene from PICK=1 transcript
                 'variant_id': variant_id
             }
 
@@ -646,44 +605,29 @@ def process_chromosome(
                     else:
                         record[output_name] = None
 
-            # Add OMIM annotations for all genes (concatenated with ' | ')
-            inheritance_list = [inheritance_mapping.get(g) for g in all_genes if inheritance_mapping.get(g)]
-            phenotype_list = [omim_phenotype_mapping.get(g) for g in all_genes if omim_phenotype_mapping.get(g)]
+            # Add OMIM annotations for the single gene
+            record['omim_inheritance'] = inheritance_mapping.get(gene) if gene else None
+            record['omim_phenotype'] = omim_phenotype_mapping.get(gene) if gene else None
 
-            record['omim_inheritance'] = ' | '.join(inheritance_list) if inheritance_list else None
-            record['omim_phenotype'] = ' | '.join(phenotype_list) if phenotype_list else None
+            # Add InterVar ACMG annotations for the single gene
+            record['acmg_classification'] = None
+            record['acmg_evidences'] = None
 
-            # Add InterVar ACMG annotations
-            acmg_data = []
-            # Normalize chromosome name (remove 'chr' prefix if present for consistent matching)
-            chrom_normalized = chrom.replace('chr', '') if chrom.startswith('chr') else chrom
-
-            for gene in all_genes:
+            if gene:
                 acmg_lookup_count += 1
+                # Normalize chromosome name (remove 'chr' prefix if present for consistent matching)
+                chrom_normalized = chrom.replace('chr', '') if chrom.startswith('chr') else chrom
+
                 # Create InterVar lookup key: chrom_pos_ref_alt_gene (with normalized chromosome)
                 intervar_key = f"{chrom_normalized}_{pos}_{ref}_{alt}_{gene}"
 
                 if intervar_key in intervar_mapping:
                     acmg_match_count += 1
                     classification, evidences = intervar_mapping[intervar_key]
-                    acmg_data.append({
-                        "gene": gene,
-                        "ACMG_classification": classification,
-                        "ACMG_evidences": evidences
-                    })
+                    record['acmg_classification'] = classification
+                    record['acmg_evidences'] = evidences
                 elif acmg_lookup_count <= 5:  # Print first 5 failed lookups for debugging
                     print(f"[DEBUG] [{chromosome}] No InterVar match for key: {intervar_key}")
-
-            # Get most significant ACMG classification
-            if acmg_data:
-                most_sig_class, most_sig_evid = get_most_significant_acmg(acmg_data)
-                record['ACMG_classification'] = most_sig_class
-                record['ACMG_evidences'] = most_sig_evid
-                record['ACMG_data'] = acmg_data
-            else:
-                record['ACMG_classification'] = None
-                record['ACMG_evidences'] = None
-                record['ACMG_data'] = None
 
             records.append(record)
 
@@ -700,7 +644,37 @@ def process_chromosome(
     else:
         print(f"[INFO] [{chromosome}] No ACMG lookups performed")
 
-    return records
+    # Write Parquet file for this chromosome
+    if records:
+        # Sanitize chromosome name for filename (remove 'chr' prefix if present)
+        chrom_name = chromosome.replace('chr', '')
+        output_file = output_dir / f"chr{chrom_name}.parquet"
+
+        print(f"[INFO] [{chromosome}] Writing {len(records):,} records to {output_file.name}...")
+
+        # Convert to Polars DataFrame
+        df = pl.DataFrame(records, infer_schema_length=min(len(records), 100000))
+
+        # Write to Parquet with ZSTD compression
+        df.write_parquet(
+            output_file,
+            compression="zstd",
+            statistics=True,
+            use_pyarrow=False
+        )
+
+        file_size_mb = output_file.stat().st_size / (1024 * 1024)
+        print(f"[INFO] [{chromosome}] Written {output_file.name} ({file_size_mb:.1f} MB)")
+    else:
+        print(f"[WARNING] [{chromosome}] No records to write")
+
+    return {
+        'chromosome': chromosome,
+        'variant_count': variant_count,
+        'variants_extracted': variants_extracted,
+        'acmg_match_count': acmg_match_count,
+        'acmg_lookup_count': acmg_lookup_count
+    }
 
 
 def process_vcf_parallel(
@@ -709,14 +683,15 @@ def process_vcf_parallel(
     inheritance_mapping: Dict[str, str],
     omim_phenotype_mapping: Dict[str, str],
     intervar_mapping: Dict[str, Tuple[str, Optional[str]]],
-    output_file: Path,
+    output_dir: Path,
     num_processes: int
 ) -> None:
     """
     Process VEP-annotated VCF file in parallel by chromosome.
 
     Creates one record per variant using the PICK=1 transcript for annotations,
-    while collecting all genes from all CSQ entries into the 'genes' field.
+    extracting the gene from the PICK=1 transcript into the 'gene' field.
+    Each chromosome writes its own Parquet file in the output directory.
 
     Args:
         vcf_file: Path to VEP-annotated VCF file
@@ -724,7 +699,7 @@ def process_vcf_parallel(
         inheritance_mapping: Gene to inheritance mode mapping
         omim_phenotype_mapping: Gene to OMIM phenotypes mapping
         intervar_mapping: InterVar data mapping
-        output_file: Path for output Parquet file
+        output_dir: Directory to write per-chromosome Parquet files
         num_processes: Number of parallel processes
     """
     start_time = time.time()
@@ -756,9 +731,12 @@ def process_vcf_parallel(
 
     print(f"[INFO] Starting parallel processing with {actual_processes} workers...")
 
+    # Create output directory if it doesn't exist
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     # Create worker arguments (distribute chromosomes across workers)
     worker_args = [
-        (chrom, str(vcf_file), hgnc_mapping, inheritance_mapping, omim_phenotype_mapping, intervar_mapping, csq_field_names)
+        (chrom, str(vcf_file), hgnc_mapping, inheritance_mapping, omim_phenotype_mapping, intervar_mapping, csq_field_names, output_dir)
         for chrom in chromosomes
     ]
 
@@ -774,42 +752,34 @@ def process_vcf_parallel(
 
     print("[INFO] All workers completed")
 
-    # Flatten results from all workers into single list
-    all_records = [record for chrom_results in results for record in chrom_results]
+    # Aggregate statistics from all chromosomes
+    total_variants = sum(r['variant_count'] for r in results)
+    total_extracted = sum(r['variants_extracted'] for r in results)
+    total_acmg_matches = sum(r['acmg_match_count'] for r in results)
+    total_acmg_lookups = sum(r['acmg_lookup_count'] for r in results)
 
-    total_variants = len(all_records)
-    print(f"[INFO] Total variants with PICK=1: {total_variants:,}")
+    print(f"\n[INFO] ===== Summary =====")
+    print(f"[INFO] Total variants processed: {total_variants:,}")
+    print(f"[INFO] Total variants with PICK=1 extracted: {total_extracted:,}")
 
-    if not all_records:
-        print("[WARNING] No records extracted. Output file will not be created.")
-        return
-
-    # Convert to Polars DataFrame once (in main process)
-    print(f"[INFO] Creating Polars DataFrame with {len(all_records):,} records...")
-    # Use larger infer_schema_length or all records (whichever is smaller) to ensure consistent schema
-    schema_length = min(len(all_records), 100000)
-    df = pl.DataFrame(all_records, infer_schema_length=schema_length)
-
-    # Write to Parquet with ZSTD compression
-    print(f"[INFO] Writing Parquet file...")
-    df.write_parquet(
-        output_file,
-        compression="zstd",
-        statistics=True,  # Enable statistics for faster querying
-        use_pyarrow=False  # Use native Polars writer for better performance
-    )
-
-    file_size_mb = output_file.stat().st_size / (1024 * 1024)
-    print(f"[INFO] Output written: {output_file} ({file_size_mb:.1f} MB)")
+    if total_acmg_lookups > 0:
+        match_rate = (total_acmg_matches / total_acmg_lookups) * 100
+        print(f"[INFO] Total ACMG matches: {total_acmg_matches:,}/{total_acmg_lookups:,} ({match_rate:.1f}%)")
 
     # Calculate and print statistics
     elapsed_time = time.time() - start_time
     print(f"[INFO] Total time: {elapsed_time:.1f} seconds")
 
-    if elapsed_time > 0:
+    if elapsed_time > 0 and total_extracted > 0:
         # Calculate processing rate (variants/second)
-        rate = total_variants / elapsed_time
+        rate = total_extracted / elapsed_time
         print(f"[INFO] Processing rate: {rate:,.0f} variants/second")
+
+    # List output files
+    parquet_files = sorted(output_dir.glob("*.parquet"))
+    total_size_mb = sum(f.stat().st_size for f in parquet_files) / (1024 * 1024)
+    print(f"[INFO] Output directory: {output_dir}")
+    print(f"[INFO] Generated {len(parquet_files)} Parquet files ({total_size_mb:.1f} MB total)")
 
 
 def main():
@@ -823,7 +793,7 @@ def main():
         "--vcf",
         type=Path,
         required=True,
-        help="Path to VEP-annotated VCF file (must be bgzipped with .tbi index)"
+        help="Path to VEP-annotated VCF file (must be indexed with .csi index)"
     )
 
     parser.add_argument(
@@ -858,7 +828,7 @@ def main():
         "--output",
         type=Path,
         required=True,
-        help="Path for output Parquet file"
+        help="Directory for output Parquet files (one per chromosome)"
     )
 
     parser.add_argument(
@@ -890,9 +860,6 @@ def main():
     if args.intervar_file and not args.intervar_file.exists():
         print(f"[ERROR] InterVar file not found: {args.intervar_file}")
         sys.exit(1)
-
-    # Create output directory if needed
-    args.output.parent.mkdir(parents=True, exist_ok=True)
 
     # Load mappings (shared across workers for O(1) lookups)
     hgnc_mapping = load_hgnc_mapping(args.hgnc_mapping)

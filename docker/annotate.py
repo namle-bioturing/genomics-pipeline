@@ -459,8 +459,7 @@ def process_chromosome(
     inheritance_mapping: Dict[str, str],
     omim_phenotype_mapping: Dict[str, str],
     intervar_mapping: Dict[str, Tuple[str, Optional[str]]],
-    csq_field_names: List[str],
-    output_dir: Path
+    csq_field_names: List[str]
 ) -> Dict[str, int]:
     """
     Process all variants in a single chromosome and write Parquet file (worker function).

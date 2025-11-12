@@ -25,28 +25,26 @@ QUERY_FIELDS = [
     "pos",
     "ref",
     "alt",
-    "rsid",
+    # "rsid",
     "qual",
-    "filter",
 
     # VEP annotations
     "gene",
     "consequence",
-    "impact",
     "hgvsc",
     "hgvsp",
 
-    # Population frequency
-    "gnomadg_af",
-    "gnomadg_af_afr",
-    "gnomadg_af_eas",
-    "gnomadg_af_nfe",
+    # # Population frequency
+    # "gnomadg_af",
+    # "gnomadg_af_afr",
+    # "gnomadg_af_eas",
+    # "gnomadg_af_nfe",
 
-    # Pathogenicity predictions
-    "revel",
-    "sift",
-    "polyphen",
-    "cadd_phred",
+    # # Pathogenicity predictions
+    # "revel",
+    # "sift",
+    # "polyphen",
+    # "cadd_phred",
 
     # Clinical significance
     "clinsig",
@@ -96,7 +94,7 @@ def example_1_chromosome_position(parquet_file: Path) -> None:
 
     def query():
         return (
-            pl.scan_parquet(parquet_file)    # Lazy scan
+            pl.scan_parquet(parquet_file)       # Lazy scan
             .filter(pl.col("chrom") == "chr1")  # Filter pushed to file reader
             .select(QUERY_FIELDS)             # Select standard fields
             .sort("pos")                      # Sort
@@ -240,6 +238,37 @@ def example_7_acmg_classification(parquet_file: Path) -> None:
         )
 
     result = time_query("Lazy: ACMG classification filter", query)
+    print(result)
+
+
+def example_8_duplicate_variants(parquet_file: Path, min_occurrences: int = 2) -> None:
+    """
+    Example 8: Find variants that appear multiple times (default >=2 occurrences).
+
+    Pattern: scan → group by variant keys → filter counts → join back → select → collect
+    """
+    print("\n" + "=" * 80)
+    print(f"EXAMPLE 8: Variants appearing at least {min_occurrences} times")
+    print("=" * 80)
+
+    duplicates = (
+        pl.scan_parquet(parquet_file)
+        .group_by(["chrom", "pos", "ref", "alt"])
+        .agg(pl.len().alias("variant_count"))
+        .filter(pl.col("variant_count") >= min_occurrences)
+    )
+
+    def query():
+        return (
+            pl.scan_parquet(parquet_file)
+            .join(duplicates, on=["chrom", "pos", "ref", "alt"], how="inner")
+            .select(["chrom", "pos", "ref", "alt", "gene", "variant_count"])
+            .sort(["variant_count", "chrom", "pos"], descending=[True, False, False])
+            .head(30)
+            .collect()
+        )
+
+    result = time_query("Lazy: duplicate variant finder", query)
     print(result)
 
 
@@ -409,6 +438,7 @@ def main():
         example_5_pathogenic_variants(parquet_file)
         example_6_specific_region(parquet_file, chrom="chr17", start=43000000, end=43100000)
         example_7_acmg_classification(parquet_file)
+        example_8_duplicate_variants(parquet_file, min_occurrences=2)
 
         # Export all chr1 variants to TSV
         export_to_tsv(

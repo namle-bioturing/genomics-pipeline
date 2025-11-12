@@ -38,6 +38,56 @@ process bam2fq {
     """
 }
 
+process bamfmt {
+    container "nvcr.io/nvidia/clara/clara-parabricks:4.5.0-1"
+
+    input:
+    tuple val(sample_id), path(bam), path(bai)
+    path reference
+    path reference_fai
+
+    output:
+    tuple val(sample_id), path(out_bam), path(out_bai)
+
+    script:
+
+    def contig_list = "contig.list"
+    def threads = params.threads / 2
+
+    out_bam = "${sample_id}.fmt.bam"
+    out_bai = "${sample_id}.fmt.bam.bai"
+
+    """
+    awk '{print \$1}' ${reference_fai} > ${contig_list}
+
+    samtools view -@ ${threads} -h ${bam} \
+        | awk 'BEGIN{
+            while((getline<"${contig_list}")>0) { K[\$1]=1; }
+        }
+        /^@SQ/ {
+            contig="";
+            for(i=1;i<=NF;i++) {
+                if (\$i ~ /^SN:/) {
+                    contig=substr(\$i,4);
+                    break;
+                }
+            }
+            if (contig != "" && K[contig]) { print; }
+            next;
+        }
+        /^@/ { print; next }
+        {
+            rname=\$3; rnext=\$7;
+            if (rnext=="=") { rnext=rname; }
+            if (K[rname] && (rnext=="*" || K[rnext])) { print; }
+        }' \
+        | samtools view -@ ${threads} -b -o ${out_bam}
+
+    samtools index -@ ${params.threads} ${out_bam}
+
+    """
+}
+
 process bamsort {
     container "nvcr.io/nvidia/clara/clara-parabricks:4.5.0-1"
     containerOptions "--gpus '\"device=1,4\"'"
@@ -325,8 +375,10 @@ workflow {
 
         // Run deepvariant on markdup BAM (wait for haplotypecaller to complete)
         markdup_for_dv = markdup.out.combine(haplotypecaller.out.map { it[0] })
-            .map { sample_id, bam, bai, hc_sample_id -> [sample_id, bam] }
-        deepvariant(markdup_for_dv, reference_ch, pb_model_ch, interval_file_ch)
+            .map { sample_id, bam, bai, hc_sample_id -> [sample_id, bam, bai] }
+        // Format bam file with respect to reference otherwise deepvariant will be failed
+        bamfmt(markdup_for_dv, reference_ch, reference_fai_ch)
+        deepvariant(bamfmt.out, reference_ch, pb_model_ch, interval_file_ch)
 
         // Run google deepvariant on markdup BAM with index
         google_deepvariant(markdup.out, reference_ch, reference_fai_ch, gg_model_ch)

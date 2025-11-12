@@ -153,8 +153,8 @@ process RUN_VEP {
     val sample
 
     output:
-    path "${sample}.out.vep.vcf.gz", emit: vep_output
-    path "${sample}.out.vep.vcf.gz.tbi", emit: vep_output_index
+    path "${sample}.out.vep.bcf", emit: vep_output
+    path "${sample}.out.vep.bcf.csi", emit: vep_output_index
 
     script:
     """
@@ -202,11 +202,10 @@ process RUN_VEP {
         --plugin AlphaMissense,file=${params.alphamissense_plugin} \
         --plugin CADD,${params.cadd_snv_plugin},${params.cadd_indel_plugin} \
         --plugin SpliceAI,snv=${params.splice_ai_snv_plugin},indel=${params.splice_ai_indel_plugin} \
-        --compress_output bgzip \
         -i ${filtered_vcf} \
-        -o ${sample}.out.vep.vcf.gz
+        -o STDOUT | bcftools view -O b -o ${sample}.out.vep.bcf -
 
-    tabix -f ${sample}.out.vep.vcf.gz
+    bcftools index -f ${sample}.out.vep.bcf
 
     echo "[VEP] VEP annotation completed at \$(date)"
     """
@@ -262,8 +261,8 @@ process ANNOTATE_VCF {
     containerOptions params.annotate_containerOptions
     publishDir "${params.outdir}", mode: 'copy', pattern: '*.parquet'
 
-    cpus params.threads
-    memory '64 GB'
+    cpus 5
+    memory '32 GB'
 
     tag "${sample}"
 
