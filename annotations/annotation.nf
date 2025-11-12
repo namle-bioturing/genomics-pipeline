@@ -195,7 +195,7 @@ process RUN_VEP {
         --assembly GRCh38 \
         --buffer_size 20000 \
         --fork ${task.cpus} \
-        --flag_pick_allele \
+        --flag_pick_allele_gene \
         --synonyms ${params.synonyms} \
         --fasta ${params.vep_fasta} \
         --plugin REVEL,file=${params.revel_plugin},no_match=1 \
@@ -263,7 +263,7 @@ process ANNOTATE_VCF {
     publishDir "${params.outdir}", mode: 'copy', pattern: '*.parquet'
 
     cpus params.threads
-    memory '32 GB'
+    memory '64 GB'
 
     tag "${sample}"
 

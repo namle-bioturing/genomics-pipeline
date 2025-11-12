@@ -4,7 +4,7 @@ High-performance parallel VEP-annotated VCF processor using cyvcf2, polars, and 
 
 This script processes VEP-annotated VCF files in parallel by chromosome. For each variant, it:
 - Selects the canonical transcript (PICK=1) for detailed annotations
-- Collects all genes from all CSQ entries and stores them in a 'genes' field
+- Extracts the gene from the PICK=1 transcript and stores it in a 'gene' field
 - Annotates with OMIM inheritance patterns and phenotype information
 Output is in Parquet format with one row per variant.
 """
@@ -17,7 +17,7 @@ import signal
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import polars as pl
 from cyvcf2 import VCF
@@ -241,53 +241,6 @@ def load_intervar_data(intervar_file: Path) -> Dict[str, Tuple[str, Optional[str
     except Exception as e:
         print(f"[ERROR] Error loading InterVar data: {e}")
         sys.exit(1)
-
-
-def get_most_significant_acmg(acmg_data: List[Dict]) -> Tuple[Optional[str], Optional[str]]:
-    """
-    Get the most significant ACMG classification and evidences (optimized).
-
-    Significance order:
-    1. Pathogenic
-    2. Likely pathogenic
-    3. Uncertain significance
-    4. Likely benign
-    5. Benign
-
-    Args:
-        acmg_data: List of dicts with "ACMG_classification" and "ACMG_evidences" keys
-
-    Returns:
-        (most_significant_classification, most_significant_evidences)
-    """
-    if not acmg_data:
-        return None, None
-
-    # Rank mapping for quick lookup
-    rank_map = {
-        "Pathogenic": 0,
-        "Likely pathogenic": 1,
-        "Uncertain significance": 2,
-        "Likely benign": 3,
-        "Benign": 4
-    }
-
-    best_classification = None
-    best_evidences = None
-    best_rank = 999
-
-    for entry in acmg_data:
-        classification = entry.get("ACMG_classification")
-        if not classification:
-            continue
-
-        rank = rank_map.get(classification, 999)
-        if rank < best_rank:
-            best_rank = rank
-            best_classification = classification
-            best_evidences = entry.get("ACMG_evidences")
-
-    return best_classification, best_evidences
 
 
 def load_hgnc_mapping(hgnc_file: Path) -> Dict[str, str]:
@@ -521,7 +474,7 @@ def process_chromosome(
         csq_field_names: List of CSQ field names
 
     Returns:
-        List of record dictionaries (one per variant with PICK=1 transcript)
+        List of record dictionaries (one per variant with PICK=1 transcript and its gene)
     """
     # Pre-compute CSQ field indices for O(1) lookup
     csq_field_indices = {name: idx for idx, name in enumerate(csq_field_names)}
@@ -587,8 +540,7 @@ def process_chromosome(
             # Split CSQ by comma (multiple consequences)
             csq_entries = csq_string.split(',')
 
-            # First pass: collect all genes from all CSQ entries
-            all_genes: Set[str] = set()
+            # Find the PICK=1 transcript
             picked_csq_values = None
 
             for csq_entry in csq_entries:
@@ -602,16 +554,12 @@ def process_chromosome(
                         if csq_values[bam_edit_idx] == 'FAILED':
                             continue
 
-                    # Extract gene using priority logic with pre-computed indices
-                    gene = extract_gene_from_csq(csq_values, csq_field_indices, hgnc_mapping)
-                    if gene:
-                        all_genes.add(gene)
-
                     # Check if this is the picked transcript
                     pick_idx = csq_field_indices.get('PICK')
                     if pick_idx is not None and pick_idx < len(csq_values):
                         if csq_values[pick_idx] == '1':
                             picked_csq_values = csq_values
+                            break  # Found PICK=1, stop searching
 
                 except Exception as e:
                     print(f"[WARNING] [{chromosome}] Error parsing CSQ entry at {chrom}:{pos}: {e}")
@@ -621,6 +569,9 @@ def process_chromosome(
             if not picked_csq_values:
                 continue
 
+            # Extract gene from the picked transcript only
+            gene = extract_gene_from_csq(picked_csq_values, csq_field_indices, hgnc_mapping)
+
             # Build record from the picked transcript
             record = {
                 'chrom': chrom,
@@ -628,7 +579,7 @@ def process_chromosome(
                 'ref': ref,
                 'alt': alt,
                 'qual': qual,
-                'genes': list(all_genes),  # Store all genes as a list
+                'gene': gene,  # Store single gene from PICK=1 transcript
                 'variant_id': variant_id
             }
 
@@ -646,44 +597,29 @@ def process_chromosome(
                     else:
                         record[output_name] = None
 
-            # Add OMIM annotations for all genes (concatenated with ' | ')
-            inheritance_list = [inheritance_mapping.get(g) for g in all_genes if inheritance_mapping.get(g)]
-            phenotype_list = [omim_phenotype_mapping.get(g) for g in all_genes if omim_phenotype_mapping.get(g)]
+            # Add OMIM annotations for the single gene
+            record['omim_inheritance'] = inheritance_mapping.get(gene) if gene else None
+            record['omim_phenotype'] = omim_phenotype_mapping.get(gene) if gene else None
 
-            record['omim_inheritance'] = ' | '.join(inheritance_list) if inheritance_list else None
-            record['omim_phenotype'] = ' | '.join(phenotype_list) if phenotype_list else None
+            # Add InterVar ACMG annotations for the single gene
+            record['ACMG_classification'] = None
+            record['ACMG_evidences'] = None
 
-            # Add InterVar ACMG annotations
-            acmg_data = []
-            # Normalize chromosome name (remove 'chr' prefix if present for consistent matching)
-            chrom_normalized = chrom.replace('chr', '') if chrom.startswith('chr') else chrom
-
-            for gene in all_genes:
+            if gene:
                 acmg_lookup_count += 1
+                # Normalize chromosome name (remove 'chr' prefix if present for consistent matching)
+                chrom_normalized = chrom.replace('chr', '') if chrom.startswith('chr') else chrom
+
                 # Create InterVar lookup key: chrom_pos_ref_alt_gene (with normalized chromosome)
                 intervar_key = f"{chrom_normalized}_{pos}_{ref}_{alt}_{gene}"
 
                 if intervar_key in intervar_mapping:
                     acmg_match_count += 1
                     classification, evidences = intervar_mapping[intervar_key]
-                    acmg_data.append({
-                        "gene": gene,
-                        "ACMG_classification": classification,
-                        "ACMG_evidences": evidences
-                    })
+                    record['ACMG_classification'] = classification
+                    record['ACMG_evidences'] = evidences
                 elif acmg_lookup_count <= 5:  # Print first 5 failed lookups for debugging
                     print(f"[DEBUG] [{chromosome}] No InterVar match for key: {intervar_key}")
-
-            # Get most significant ACMG classification
-            if acmg_data:
-                most_sig_class, most_sig_evid = get_most_significant_acmg(acmg_data)
-                record['ACMG_classification'] = most_sig_class
-                record['ACMG_evidences'] = most_sig_evid
-                record['ACMG_data'] = acmg_data
-            else:
-                record['ACMG_classification'] = None
-                record['ACMG_evidences'] = None
-                record['ACMG_data'] = None
 
             records.append(record)
 
@@ -716,7 +652,7 @@ def process_vcf_parallel(
     Process VEP-annotated VCF file in parallel by chromosome.
 
     Creates one record per variant using the PICK=1 transcript for annotations,
-    while collecting all genes from all CSQ entries into the 'genes' field.
+    extracting the gene from the PICK=1 transcript into the 'gene' field.
 
     Args:
         vcf_file: Path to VEP-annotated VCF file

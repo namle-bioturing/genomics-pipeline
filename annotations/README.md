@@ -250,14 +250,14 @@ If you use this pipeline, please cite:
 
 ```bash
 # Start a tmux session
-tmux new-session -s namle-annotation
+tmux new-session -s genomics-annotation
 
 # Attach later
-tmux attach -t namle-annotation
+tmux attach -t genomics-annotation
 
 # Remove 
-tmux kill-session -t namle-annotation
+tmux kill-session -t genomics-annotation
 
 # View logs
-tmux capture-pane -pt namle-annotation -S -
+tmux capture-pane -pt genomics-annotation -S -
 ```

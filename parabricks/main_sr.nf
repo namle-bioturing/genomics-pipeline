@@ -12,6 +12,7 @@ params.pb_deepvariant_model = null
 params.gg_deepvariant_model = null
 params.output_dir = null
 params.interval = "-L chr1 -L chr2 -L chr3 -L chr4 -L chr5 -L chr6 -L chr7 -L chr8 -L chr9 -L chr10 -L chr11 -L chr12 -L chr13 -L chr14 -L chr15 -L chr16 -L chr17 -L chr18 -L chr19 -L chr20 -L chr21 -L chr22 -L chrX -L chrY -L chrM"
+params.interval_file = '/mnt/disk1/namle/data/references/grch38.bed'
 
 // Fixed references
 params.reference = "/mnt/disk1/namle/data/references/Homo_sapiens_assembly38.fasta"
@@ -182,11 +183,13 @@ process deepvariant {
     container "nvcr.io/nvidia/clara/clara-parabricks:4.5.0-1"
     containerOptions "--gpus '\"device=1,4\"'"
     publishDir "${params.output_dir}/${params.sample_id}", mode: 'copy'
+    errorStrategy 'ignore'
 
     input:
     tuple val(sample_id), path(bam)
     path reference
     path model_file
+    path interval_file
 
     output:
     tuple val(sample_id), path("${sample_id}.deepvariant.vcf")
@@ -199,6 +202,7 @@ process deepvariant {
         --ref ${reference} \\
         --in-bam ${bam} \\
         --num-streams-per-gpu 1 \\
+        --interval-file ${interval_file} \\
         --out-variants ${sample_id}.deepvariant.vcf \\
         ${params.interval} \\
         ${wes_flag} \\
@@ -289,6 +293,7 @@ workflow {
     reference_ch = Channel.fromPath(params.reference).collect()
     reference_fai_ch = Channel.fromPath("${params.reference}.fai").collect()
     known_sites_ch = Channel.fromPath(params.known_sites).collect()
+    interval_file_ch = Channel.fromPath(params.interval_file).collect()
 
     // Handle optional parabricks deepvariant model file
     pb_model_ch = params.pb_deepvariant_model
@@ -321,7 +326,7 @@ workflow {
         // Run deepvariant on markdup BAM (wait for haplotypecaller to complete)
         markdup_for_dv = markdup.out.combine(haplotypecaller.out.map { it[0] })
             .map { sample_id, bam, bai, hc_sample_id -> [sample_id, bam] }
-        deepvariant(markdup_for_dv, reference_ch, pb_model_ch)
+        deepvariant(markdup_for_dv, reference_ch, pb_model_ch, interval_file_ch)
 
         // Run google deepvariant on markdup BAM with index
         google_deepvariant(markdup.out, reference_ch, reference_fai_ch, gg_model_ch)
@@ -337,7 +342,7 @@ workflow {
 
         // Extract BAM only for parabricks deepvariant
         germline_bam_only = germline.out.bam.map { sample_id, bam, bai -> [sample_id, bam] }
-        deepvariant(germline_bam_only, reference_ch, pb_model_ch)
+        deepvariant(germline_bam_only, reference_ch, pb_model_ch, interval_file_ch)
 
         // Pass BAM with index to google deepvariant
         google_deepvariant(germline.out.bam, reference_ch, reference_fai_ch, gg_model_ch)
