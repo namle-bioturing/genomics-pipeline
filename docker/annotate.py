@@ -38,7 +38,7 @@ CSQ_FIELD_MAPPING = {
     'INTRON': 'intron',
     'HGVSc': 'hgvsc',
     'HGVSp': 'hgvsp',
-    'existing_variation': 'rsid',
+    'Existing_variation': 'rsid',
     'HGNC_ID': 'hgnc_id',
     'MANE': 'mane',
 
@@ -99,8 +99,8 @@ CSQ_FIELD_MAPPING = {
     'MAX_AF': 'max_af',
     'MAX_AF_POPS': 'max_af_pops',
 
-    # Transcript selection
-    # 'PICK': 'pick',
+    # Others
+    'Gene': 'ensg'
 }
 
 
@@ -406,10 +406,10 @@ def check_tabix_index(vcf_path: Path) -> None:
     Raises:
         SystemExit if index doesn't exist
     """
-    tbi_path = Path(str(vcf_path) + '.tbi')
-    if not tbi_path.exists():
-        print(f"[ERROR] Tabix index not found: {tbi_path}")
-        print(f"[ERROR] Please create index with: tabix -p vcf {vcf_path}")
+    csi_path = Path(str(vcf_path) + '.csi')
+    if not csi_path.exists():
+        print(f"[ERROR] Index file not found: {csi_path}")
+        print(f"[ERROR] Please create index with: bcftools index {vcf_path}")
         sys.exit(1)
 
 
@@ -459,10 +459,11 @@ def process_chromosome(
     inheritance_mapping: Dict[str, str],
     omim_phenotype_mapping: Dict[str, str],
     intervar_mapping: Dict[str, Tuple[str, Optional[str]]],
-    csq_field_names: List[str]
-) -> List[Dict]:
+    csq_field_names: List[str],
+    output_dir: Path
+) -> Dict[str, int]:
     """
-    Process all variants in a single chromosome (worker function).
+    Process all variants in a single chromosome and write Parquet file (worker function).
 
     Args:
         chromosome: Chromosome name to process
@@ -472,9 +473,10 @@ def process_chromosome(
         omim_phenotype_mapping: Gene to OMIM phenotypes mapping
         intervar_mapping: InterVar data mapping (chrom_pos_ref_alt_gene -> (classification, evidences))
         csq_field_names: List of CSQ field names
+        output_dir: Directory to write Parquet files
 
     Returns:
-        List of record dictionaries (one per variant with PICK=1 transcript and its gene)
+        Dictionary with statistics: {chromosome, variant_count, variants_extracted}
     """
     # Pre-compute CSQ field indices for O(1) lookup
     csq_field_indices = {name: idx for idx, name in enumerate(csq_field_names)}
@@ -517,8 +519,14 @@ def process_chromosome(
                 format_fields['dp'] = variant.gt_depths[0] if (variant.gt_depths is not None and len(variant.gt_depths) > 0) else None
                 format_fields['gq'] = variant.gt_quals[0] if (variant.gt_quals is not None and len(variant.gt_quals) > 0) else None
 
-                if hasattr(variant, 'gt_alt_depths') and variant.gt_alt_depths is not None and len(variant.gt_alt_depths) > 0:
-                    format_fields['ad'] = variant.gt_alt_depths[0]
+                ad_values = variant.format('AD')
+                if ad_values is not None and len(ad_values) > 0:
+                    ad_array = ad_values[0]  # Returns array [ref_depth, alt_depth]
+                    # Convert to "ref_depth:alt_depth" format
+                    if ad_array is not None and len(ad_array) >= 2:
+                        format_fields['ad'] = f"{ad_array[0]}:{ad_array[1]}"
+                    else:
+                        format_fields['ad'] = None
                 else:
                     format_fields['ad'] = None
             else:
@@ -602,8 +610,8 @@ def process_chromosome(
             record['omim_phenotype'] = omim_phenotype_mapping.get(gene) if gene else None
 
             # Add InterVar ACMG annotations for the single gene
-            record['ACMG_classification'] = None
-            record['ACMG_evidences'] = None
+            record['acmg_classification'] = None
+            record['acmg_evidences'] = None
 
             if gene:
                 acmg_lookup_count += 1
@@ -616,8 +624,8 @@ def process_chromosome(
                 if intervar_key in intervar_mapping:
                     acmg_match_count += 1
                     classification, evidences = intervar_mapping[intervar_key]
-                    record['ACMG_classification'] = classification
-                    record['ACMG_evidences'] = evidences
+                    record['acmg_classification'] = classification
+                    record['acmg_evidences'] = evidences
                 elif acmg_lookup_count <= 5:  # Print first 5 failed lookups for debugging
                     print(f"[DEBUG] [{chromosome}] No InterVar match for key: {intervar_key}")
 
@@ -759,7 +767,7 @@ def main():
         "--vcf",
         type=Path,
         required=True,
-        help="Path to VEP-annotated VCF file (must be bgzipped with .tbi index)"
+        help="Path to VEP-annotated VCF file (must be indexed with .csi index)"
     )
 
     parser.add_argument(
