@@ -99,6 +99,13 @@ CSQ_FIELD_MAPPING = {
     'MAX_AF': 'max_af',
     'MAX_AF_POPS': 'max_af_pops',
 
+    # Clinvar
+    'CLINVAR_CLNSIG': 'clinvar_clnsig',
+    'CLINVAR_CLNSIGCONF': 'clinvar_clnsigconf',
+    'CLINVAR_ID': 'clinvar_id',
+    'CLINVAR_CLNREVSTAT': 'clinvar_clnrevstat',
+    'CLINVAR_GENEINFO': 'clinvar_geneinfo',
+    
     # Others
     'Gene': 'ensg'
 }
@@ -451,6 +458,46 @@ def extract_gene_from_csq(
 
     return None
 
+def extract_clinvar_clnsig_final(data):
+    clnsig = str(data['CLINVAR_CLNSIG']) if str(data['CLINVAR_CLNSIG']) else None
+    clnsig_conf = str(data['CLINVAR_CLNSIGCONF']) if str(data['CLINVAR_CLNSIGCONF']) else None
+
+    clnsig_mapping = {
+        'Conflicting_interpretations_of_pathogenicity': 'CONF',
+        'Conflicting_classifications_of_pathogenicity': 'CONF',
+        'Established_risk_allele': 'ERA',
+        'no_classification_for_the_single_variant': 'NCFSV',
+        'no_classifications_from_unflagged_records': 'NCFUR',
+        'risk_factor': 'RISK',
+        'Affects': 'AFF',
+        '_low_penetrance': 'LOWPEN',
+        'association_not_found': 'NOASSO',
+        'association': 'ASSO',
+        'drug_response': 'DRUG',
+        'Likely_benign': 'LB',
+        'Benign': 'BEN',
+        'other': 'OTH',
+        'protective': 'PROT',
+        'confers_sensitivity': 'CONFER',
+        'Likely_pathogenic': 'LP',
+        'Pathogenic': 'PAT',
+        'not_provided': 'NOPRO',
+        'Uncertain_risk_allele': 'URA',
+        'Uncertain_significance': 'VUS',
+    }
+
+    for key in clnsig_mapping:
+        re_pattern = re.compile(key, flags=re.IGNORECASE)
+        clnsig = re_pattern.sub(clnsig_mapping[key], clnsig)
+        clnsig_conf = re_pattern.sub(clnsig_mapping[key], clnsig_conf)
+
+    clnsig_conf = re.sub(r'&', '; ', clnsig_conf)
+    clnsig_conf = re.sub(r',', ', ', clnsig_conf)
+
+    if 'CONF' in clnsig and clnsig_conf != None:
+        clnsig = f'{clnsig}; {clnsig_conf}'
+    return clnsig
+
 
 def process_chromosome(
     chromosome: str,
@@ -459,7 +506,8 @@ def process_chromosome(
     inheritance_mapping: Dict[str, str],
     omim_phenotype_mapping: Dict[str, str],
     intervar_mapping: Dict[str, Tuple[str, Optional[str]]],
-    csq_field_names: List[str]
+    csq_field_names: List[str],
+    output_dir: Path
 ) -> Dict[str, int]:
     """
     Process all variants in a single chromosome and write Parquet file (worker function).
@@ -628,6 +676,11 @@ def process_chromosome(
                 elif acmg_lookup_count <= 5:  # Print first 5 failed lookups for debugging
                     print(f"[DEBUG] [{chromosome}] No InterVar match for key: {intervar_key}")
 
+            # Process CLINVAR data
+            record["clinvar_clinsig_final"] = extract_clinvar_clnsig_final(record)
+            del record["clinvar_clnsig"]
+            del record["clinvar_clnsigconf"]
+
             records.append(record)
 
     finally:
@@ -643,7 +696,82 @@ def process_chromosome(
     else:
         print(f"[INFO] [{chromosome}] No ACMG lookups performed")
 
-    return records
+    # Write Parquet file for this chromosome
+    if records:
+        # Sanitize chromosome name for filename (remove 'chr' prefix if present)
+        chrom_name = chromosome.replace('chr', '')
+        output_file = output_dir / f"chr{chrom_name}.parquet"
+
+        print(f"[INFO] [{chromosome}] Writing {len(records):,} records to {output_file.name}...")
+
+        # Convert to Polars DataFrame
+        df = pl.DataFrame(records, infer_schema_length=min(len(records), 100000))
+
+        # Write to Parquet with ZSTD compression
+        df.write_parquet(
+            output_file,
+            compression="zstd",
+            statistics=True,
+            use_pyarrow=False
+        )
+
+        file_size_mb = output_file.stat().st_size / (1024 * 1024)
+        print(f"[INFO] [{chromosome}] Written {output_file.name} ({file_size_mb:.1f} MB)")
+    else:
+        print(f"[WARNING] [{chromosome}] No records to write")
+
+    return {
+        'chromosome': chromosome,
+        'variant_count': variant_count,
+        'variants_extracted': variants_extracted,
+        'acmg_match_count': acmg_match_count,
+        'acmg_lookup_count': acmg_lookup_count
+    }
+
+
+def merge_parquet_files(output_dir: Path, final_output: Path) -> None:
+    """
+    Merge all chromosome parquet files into a single file using lazy evaluation.
+
+    Args:
+        output_dir: Directory containing per-chromosome parquet files
+        final_output: Path to the merged output parquet file
+    """
+    print(f"\n[INFO] Merging chromosome parquet files...")
+    start_time = time.time()
+
+    # Find all chromosome parquet files
+    parquet_files = sorted(output_dir.glob("chr*.parquet"))
+
+    if not parquet_files:
+        print("[WARNING] No chromosome parquet files found to merge")
+        return
+
+    print(f"[INFO] Found {len(parquet_files)} chromosome files to merge")
+
+    # Lazy scan and concatenate using streaming mode (minimal RAM usage)
+    try:
+        # Use scan_parquet for lazy evaluation, then collect with streaming
+        merged_df = pl.concat([pl.scan_parquet(f) for f in parquet_files]).collect(streaming=True)
+
+        # Write merged file
+        print(f"[INFO] Writing merged file to {final_output}...")
+        merged_df.write_parquet(
+            final_output,
+            compression="zstd",
+            statistics=True,
+            use_pyarrow=False
+        )
+
+        file_size_mb = final_output.stat().st_size / (1024 * 1024)
+        elapsed = time.time() - start_time
+
+        print(f"[INFO] ✓ Merged file written: {final_output.name} ({file_size_mb:.1f} MB)")
+        print(f"[INFO] Merge time: {elapsed:.1f} seconds")
+
+    except Exception as e:
+        print(f"[ERROR] Failed to merge parquet files: {e}")
+        sys.exit(1)
 
 
 def process_vcf_parallel(
@@ -660,6 +788,8 @@ def process_vcf_parallel(
 
     Creates one record per variant using the PICK=1 transcript for annotations,
     extracting the gene from the PICK=1 transcript into the 'gene' field.
+    Each chromosome writes its own Parquet file in the output directory, then
+    merges all chromosome files into a single merged.parquet file.
 
     Args:
         vcf_file: Path to VEP-annotated VCF file
@@ -667,7 +797,7 @@ def process_vcf_parallel(
         inheritance_mapping: Gene to inheritance mode mapping
         omim_phenotype_mapping: Gene to OMIM phenotypes mapping
         intervar_mapping: InterVar data mapping
-        output_file: Path for output Parquet file
+        output_file: Final merged parquet result
         num_processes: Number of parallel processes
     """
     start_time = time.time()
@@ -699,16 +829,22 @@ def process_vcf_parallel(
 
     print(f"[INFO] Starting parallel processing with {actual_processes} workers...")
 
+    # Create output directory if it doesn't exist
+    output_dir = Path("annotated_parquet_outputs")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     # Create worker arguments (distribute chromosomes across workers)
     worker_args = [
-        (chrom, str(vcf_file), hgnc_mapping, inheritance_mapping, omim_phenotype_mapping, intervar_mapping, csq_field_names)
+        (chrom, str(vcf_file), hgnc_mapping, inheritance_mapping, omim_phenotype_mapping, intervar_mapping, csq_field_names, output_dir)
         for chrom in chromosomes
     ]
 
-    # Process chromosomes in parallel using multiprocessing.Pool
+    # Process chromosomes in parallel using multiprocessing.Pool with spawn context
+    # Use spawn to avoid Polars deadlock issues with fork()
     results = []
     try:
-        with mp.Pool(processes=actual_processes) as pool:
+        ctx = mp.get_context('spawn')
+        with ctx.Pool(processes=actual_processes) as pool:
             # Use pool.starmap to distribute work across workers
             results = pool.starmap(process_chromosome, worker_args)
     except KeyboardInterrupt:
@@ -717,42 +853,37 @@ def process_vcf_parallel(
 
     print("[INFO] All workers completed")
 
-    # Flatten results from all workers into single list
-    all_records = [record for chrom_results in results for record in chrom_results]
+    # Aggregate statistics from all chromosomes
+    total_variants = sum(r['variant_count'] for r in results)
+    total_extracted = sum(r['variants_extracted'] for r in results)
+    total_acmg_matches = sum(r['acmg_match_count'] for r in results)
+    total_acmg_lookups = sum(r['acmg_lookup_count'] for r in results)
 
-    total_variants = len(all_records)
-    print(f"[INFO] Total variants with PICK=1: {total_variants:,}")
+    print(f"\n[INFO] ===== Summary =====")
+    print(f"[INFO] Total variants processed: {total_variants:,}")
+    print(f"[INFO] Total variants with PICK=1 extracted: {total_extracted:,}")
 
-    if not all_records:
-        print("[WARNING] No records extracted. Output file will not be created.")
-        return
-
-    # Convert to Polars DataFrame once (in main process)
-    print(f"[INFO] Creating Polars DataFrame with {len(all_records):,} records...")
-    # Use larger infer_schema_length or all records (whichever is smaller) to ensure consistent schema
-    schema_length = min(len(all_records), 100000)
-    df = pl.DataFrame(all_records, infer_schema_length=schema_length)
-
-    # Write to Parquet with ZSTD compression
-    print(f"[INFO] Writing Parquet file...")
-    df.write_parquet(
-        output_file,
-        compression="zstd",
-        statistics=True,  # Enable statistics for faster querying
-        use_pyarrow=False  # Use native Polars writer for better performance
-    )
-
-    file_size_mb = output_file.stat().st_size / (1024 * 1024)
-    print(f"[INFO] Output written: {output_file} ({file_size_mb:.1f} MB)")
+    if total_acmg_lookups > 0:
+        match_rate = (total_acmg_matches / total_acmg_lookups) * 100
+        print(f"[INFO] Total ACMG matches: {total_acmg_matches:,}/{total_acmg_lookups:,} ({match_rate:.1f}%)")
 
     # Calculate and print statistics
     elapsed_time = time.time() - start_time
     print(f"[INFO] Total time: {elapsed_time:.1f} seconds")
 
-    if elapsed_time > 0:
+    if elapsed_time > 0 and total_extracted > 0:
         # Calculate processing rate (variants/second)
-        rate = total_variants / elapsed_time
+        rate = total_extracted / elapsed_time
         print(f"[INFO] Processing rate: {rate:,.0f} variants/second")
+
+    # List output files
+    parquet_files = sorted(output_dir.glob("chr*.parquet"))
+    total_size_mb = sum(f.stat().st_size for f in parquet_files) / (1024 * 1024)
+    print(f"[INFO] Output directory: {output_dir}")
+    print(f"[INFO] Generated {len(parquet_files)} Parquet files ({total_size_mb:.1f} MB total)")
+
+    # Merge all chromosome parquet files into a single file
+    merge_parquet_files(output_dir, output_file)
 
 
 def main():
@@ -801,7 +932,7 @@ def main():
         "--output",
         type=Path,
         required=True,
-        help="Path for output Parquet file"
+        help="Output of final parquet file (merged result)"
     )
 
     parser.add_argument(
@@ -833,9 +964,6 @@ def main():
     if args.intervar_file and not args.intervar_file.exists():
         print(f"[ERROR] InterVar file not found: {args.intervar_file}")
         sys.exit(1)
-
-    # Create output directory if needed
-    args.output.parent.mkdir(parents=True, exist_ok=True)
 
     # Load mappings (shared across workers for O(1) lookups)
     hgnc_mapping = load_hgnc_mapping(args.hgnc_mapping)

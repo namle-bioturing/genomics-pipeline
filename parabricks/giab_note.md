@@ -70,3 +70,18 @@ nextflow run main_sr.nf \
     --input_type "bam" \
     --output_dir "/mnt/disk1/namle/run/giab/output/tests"
 ```
+
+
+```bash
+# Start a tmux session
+tmux new-session -s namle-ont
+
+# Attach later
+tmux attach -t namle-ont
+
+# Remove 
+tmux kill-session -t namle-ont
+
+# View logs
+tmux capture-pane -pt namle-ont -S -
+```

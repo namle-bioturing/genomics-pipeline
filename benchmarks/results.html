@@ -41,6 +41,113 @@
 <body>
   <main>
     <section>
+      <h2>Complete Genomics WGS G400</h2>
+      <table>
+        <thead>
+          <tr>
+            <th rowspan="2">Sample</th>
+            <th rowspan="2">Caller</th>
+            <th colspan="2">Recall</th>
+            <th colspan="2">Precision</th>
+            <th colspan="2">F1</th>
+          </tr>
+          <tr>
+            <th>SNP</th>
+            <th>INDEL</th>
+            <th>SNP</th>
+            <th>INDEL</th>
+            <th>SNP</th>
+            <th>INDEL</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td rowspan="2">HG002</td>
+            <td>GATK</td>
+            <td>0.991494</td>
+            <td>0.988913</td>
+            <td>0.99059</td>
+            <td>0.992773</td>
+            <td>0.991042</td>
+            <td>0.990839</td>
+          </tr>
+          <tr>
+            <td>BioTuring</td>
+            <td>0.992889</td>
+            <td>0.989392</td>
+            <td>0.999308</td>
+            <td>0.997787</td>
+            <td><b>0.996088</b></td>
+            <td><b>0.993572</b></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>ONT DNA r10.4.1 (hac)</h2>
+      <table>
+        <thead>
+          <tr>
+            <th rowspan="2">Sample</th>
+            <th rowspan="2">Caller</th>
+            <th colspan="2">Recall</th>
+            <th colspan="2">Precision</th>
+            <th colspan="2">F1</th>
+          </tr>
+          <tr>
+            <th>SNP</th>
+            <th>INDEL</th>
+            <th>SNP</th>
+            <th>INDEL</th>
+            <th>SNP</th>
+            <th>INDEL</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td rowspan="2">HG001 - PAW79146</td>
+            <td>Epi2me</td>
+            <td>0.998756</td>
+            <td>0.864456</td>
+            <td>0.99669</td>
+            <td>0.803162</td>
+            <td>0.997722</td>
+            <td>0.832683</td>
+          </tr>
+          <tr>
+            <td>BioTuring</td>
+            <td>0.997885</td>
+            <td>0.820413</td>
+            <td>0.998146</td>
+            <td>0.855176</td>
+            <td><b>0.998016</b></td>
+            <td><b>0.837434</b></td>
+          </tr>
+          <tr>
+            <td rowspan="2">HG001 - PAW81754</td>
+            <td>Epi2me</td>
+            <td>0.998902</td>
+            <td>0.870313</td>
+            <td>0.997255</td>
+            <td>0.821339</td>
+            <td>0.998078</td>
+            <td>0.845117</td>
+          </tr>
+          <tr>
+            <td>BioTuring</td>
+            <td>0.998191</td>
+            <td>0.830204</td>
+            <td>0.998227</td>
+            <td>0.860745</td>
+            <td><b>0.998209</b></td>
+            <td><b>0.845199</b></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
       <h2>WGS Novaseq PCR Free 30x</h2>
       <table>
         <thead>
@@ -198,7 +305,7 @@
       </table>
     </section>
 
-    <!-- <section>
+    <section>
       <h2>WES IDT 100X</h2>
       <table>
         <thead>
@@ -222,139 +329,139 @@
           <tr>
             <td rowspan="2">HG001</td>
             <td>GATK</td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
+            <td>0.913848</td>
+            <td>0.816489</td>
+            <td>0.980053</td>
+            <td>0.861496</td>
+            <td>0.945793</td>
+            <td>0.861496</td>
           </tr>
           <tr>
             <td>BioTuring</td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
+            <td>0.915881</td>
+            <td>0.829787</td>
+            <td>0.997839</td>
+            <td>0.981366</td>
+            <td>0.955105</td>
+            <td>0.899234</td>
           </tr>
           <tr>
             <td rowspan="2">HG002</td>
             <td>GATK</td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
+            <td>0.911332</td>
+            <td>0.814536</td>
+            <td>0.981051</td>
+            <td>0.863158</td>
+            <td>0.944907</td>
+            <td>0.838143</td>
           </tr>
           <tr>
             <td>BioTuring</td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
+            <td>0.913346</td>
+            <td>0.947771</td>
+            <td>0.997433</td>
+            <td>0.988338</td>
+            <td>0.953539</td>
+            <td>0.909381</td>
           </tr>
           <tr>
             <td rowspan="2">HG003</td>
             <td>GATK</td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
+            <td>0.916175</td>
+            <td>0.832461</td>
+            <td>0.981623</td>
+            <td>0.891967</td>
+            <td>0.947771</td>
+            <td>0.861187</td>
           </tr>
           <tr>
             <td>BioTuring</td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
+            <td>0.916272</td>
+            <td>0.842932</td>
+            <td>0.997948</td>
+            <td>0.984894</td>
+            <td>0.955367</td>
+            <td>0.9084</td>
           </tr>
           <tr>
             <td rowspan="2">HG004</td>
             <td>GATK</td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
+            <td>0.911034</td>
+            <td>0.861183</td>
+            <td>0.984121</td>
+            <td>0.877551</td>
+            <td>0.946168</td>
+            <td>0.86929</td>
           </tr>
           <tr>
             <td>BioTuring</td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
+            <td>0.911759</td>
+            <td>0.874036</td>
+            <td>0.998412</td>
+            <td>0.988669</td>
+            <td>0.95312</td>
+            <td>0.927825</td>
           </tr>
           <tr>
             <td rowspan="2">HG005</td>
             <td>GATK</td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
+            <td>0.913557</td>
+            <td>0.819672</td>
+            <td>0.979248</td>
+            <td>0.856742</td>
+            <td>0.945262</td>
+            <td>0.837797</td>
           </tr>
           <tr>
             <td>BioTuring</td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
+            <td>0.914331</td>
+            <td>0.844262</td>
+            <td>0.998309</td>
+            <td>0.984326</td>
+            <td>0.954477</td>
+            <td>0.90893</td>
           </tr>
           <tr>
             <td rowspan="2">HG006</td>
             <td>GATK</td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
+            <td>0.918079</td>
+            <td>0.845938</td>
+            <td>0.979829</td>
+            <td>0.867606</td>
+            <td>0.947949</td>
+            <td>0.856635</td>
           </tr>
           <tr>
             <td>BioTuring</td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
+            <td>0.918862</td>
+            <td>0.857143</td>
+            <td>0.997661</td>
+            <td>0.981132</td>
+            <td>0.956641</td>
+            <td>0.914956</td>
           </tr>
           <tr>
             <td rowspan="2">HG007</td>
             <td>GATK</td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
+            <td>0.914909</td>
+            <td>0.852071</td>
+            <td>0.979803</td>
+            <td>0.873874</td>
+            <td>0.946245</td>
+            <td>0.862835</td>
           </tr>
           <tr>
             <td>BioTuring</td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
+            <td>0.916509</td>
+            <td>0.881657</td>
+            <td>0.997362</td>
+            <td>0.996689</td>
+            <td>0.955228</td>
+            <td>0.93565</td>
           </tr>
         </tbody>
       </table>
-    </section> -->
+    </section>
 
     <section>
       <h2>WES IDT 75X</h2>

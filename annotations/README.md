@@ -251,15 +251,18 @@ If you use this pipeline, please cite:
 ```bash
 # Start a tmux session
 tmux new-session -s genomics-annotation
+tmux new-session -s genomics-annotation-2
 
 # Attach later
 tmux attach -t genomics-annotation
+tmux attach -t genomics-annotation-2
 
 # Remove 
 tmux kill-session -t genomics-annotation
 
 # View logs
 tmux capture-pane -pt genomics-annotation -S -
+tmux capture-pane -pt genomics-annotation-2 -S -
 
 
 tmux capture-pane -pt genomics-annotation -S - | tail -n 30 -f 

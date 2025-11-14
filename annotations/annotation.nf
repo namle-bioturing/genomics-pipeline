@@ -19,6 +19,7 @@ params.cadd_snv_plugin = "/opt/vep/.vep/plugins_data/CADD/whole_genome_SNVs_v1.7
 params.cadd_indel_plugin = "/opt/vep/.vep/plugins_data/CADD/gnomad.genomes.r4.0.indel.v1.7.hg38.tsv.gz"
 params.splice_ai_snv_plugin = "/opt/vep/.vep/plugins_data/SpliceAI/spliceai_scores.raw.snv.hg38.vcf.gz"
 params.splice_ai_indel_plugin = "/opt/vep/.vep/plugins_data/SpliceAI/spliceai_scores.raw.indel.hg38.vcf.gz"
+params.clinvar_plugin = "/opt/vep/.vep/plugins_data/Clinvar/clinvar.hg38.vcf.gz"
 
 params.outdir = "."
 
@@ -202,6 +203,7 @@ process RUN_VEP {
         --plugin AlphaMissense,file=${params.alphamissense_plugin} \
         --plugin CADD,${params.cadd_snv_plugin},${params.cadd_indel_plugin} \
         --plugin SpliceAI,snv=${params.splice_ai_snv_plugin},indel=${params.splice_ai_indel_plugin} \
+        --custom ${params.clinvar_plugin},CLINVAR,vcf,exact,0,CLNSIG,CLNSIGCONF,ID,CLNREVSTAT,GENEINFO \
         -i ${filtered_vcf} \
         -o STDOUT | bcftools view -O b -o ${sample}.out.vep.bcf -
 
@@ -290,8 +292,12 @@ process ANNOTATE_VCF {
         --processes ${task.cpus}
 
     echo "[ANNOTATE] Combined annotation completed at \$(date)"
-    echo "[ANNOTATE] Output file: ${sample}.annotated.parquet"
+    echo "[ANNOTATE] Output file (Merged): ${sample}.annotated.parquet"
     """
 }
 
 // nextflow run annotation.nf -resume --sample PAW81754 --vcf PAW81754.vcf.gz -with-timeline timeline.html -with-report report.html -with-trace trace.txt -profile standard
+
+// nextflow run annotation.nf -resume --sample ONT-007_v271 --vcf ONT-007_v271.wf_snp.vcf.gz -with-timeline ONT-007_v271.timeline.html -with-report ONT-007_v271.report.html -with-trace ONT-007_v271.trace.txt -profile standard
+
+// nextflow run annotation.nf -resume --sample ONT-010_v271 --vcf ONT-010_v271.wf_snp.vcf.gz -with-timeline ONT-010_v271.timeline.html -with-report ONT-010_v271.report.html -with-trace ONT-010_v271.trace.txt -profile standard
